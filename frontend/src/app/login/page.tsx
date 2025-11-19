@@ -74,7 +74,7 @@ export default function LoginPage() {
               <div className="mb-8 text-center">
                 <h1 className="text-3xl font-bold text-slate-900">Welcome back</h1>
                 <p className="mt-2 text-slate-600">
-                  Sign in to your AI-health Lookout account
+                  Sign in to your KhaddoKotha account
                 </p>
               </div>
 

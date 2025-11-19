@@ -14,5 +14,5 @@ export const highlightSections = [
 ];
 
 export const missionCopy =
-  "AI-health Lookout watches over millions of biometric signals, triages anomalies, and briefs clinicians before patients even feel a symptom. We deliver calm, explainable intelligence so you can intervene sooner.";
+  "KhaddoKotha watches over millions of biometric signals, triages anomalies, and briefs clinicians before patients even feel a symptom. We deliver calm, explainable intelligence so you can intervene sooner.";
 

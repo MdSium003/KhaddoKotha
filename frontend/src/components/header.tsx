@@ -16,7 +16,7 @@ export function SiteHeader() {
   return (
     <header className="sticky top-6 z-50 flex w-full flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-200/60 bg-white/90 px-6 py-4 shadow-sm backdrop-blur-lg">
       <Link href="/" className="text-lg font-semibold tracking-tight">
-        AI-health Lookout
+        KhaddoKotha
       </Link>
       <nav className="flex flex-wrap gap-6 text-sm font-medium text-slate-600">
         {navigation.map((item) => (

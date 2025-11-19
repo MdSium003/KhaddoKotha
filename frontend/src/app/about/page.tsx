@@ -153,7 +153,7 @@ export default function AboutPage() {
         <main className="mt-10 flex flex-1 flex-col gap-16">
           <section className="text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.4em] text-emerald-600">
-              About AI-health Lookout
+              About KhaddoKotha
             </p>
             <h1 className="mt-4 text-4xl font-semibold md:text-5xl">
               Calm AI infrastructure for population health.
@@ -242,7 +242,7 @@ export default function AboutPage() {
           <section className="rounded-3xl border border-slate-900/10 bg-slate-900 text-[#BCEBD7] p-10 text-center shadow-xl">
             <h2 className="text-3xl font-semibold">Join our next pilot</h2>
             <p className="mx-auto mt-3 max-w-2xl text-base text-[#DFF3E7]">
-              Partner with AI-health Lookout to monitor high-risk populations,
+              Partner with KhaddoKotha to monitor high-risk populations,
               evaluate interventions faster, and keep leadership briefed with
               humane reporting.
             </p>

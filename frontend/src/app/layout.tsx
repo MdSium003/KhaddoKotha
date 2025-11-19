@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI-health Lookout",
+  title: "KhaddoKotha",
   description: "AI-powered health monitoring platform",
 };
 

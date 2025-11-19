@@ -77,7 +77,7 @@ export default function SignupPage() {
                   Create your account
                 </h1>
                 <p className="mt-2 text-slate-600">
-                  Join AI-health Lookout to get started
+                  Join KhaddoKotha to get started
                 </p>
               </div>
 
