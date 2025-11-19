@@ -51,6 +51,23 @@ export async function fetchTemplates(): Promise<TemplateItem[]> {
   return data.items;
 }
 
+// Food inventory types
+export type FoodInventoryItem = {
+  id: number;
+  item_name: string;
+  category: string;
+  expiration_days: number;
+  cost_per_unit: number;
+};
+
+export async function fetchFoodInventory(): Promise<FoodInventoryItem[]> {
+  const data = await request<{ items: FoodInventoryItem[] }>("/api/inventory", {
+    cache: "reload",
+  });
+
+  return data.items;
+}
+
 // Authentication types
 export type AuthResponse = {
   message: string;
@@ -127,15 +144,177 @@ export type User = {
   email: string;
   name: string;
   avatarUrl?: string;
+  budgetPreferences?: "low" | "medium" | "high";
+  dietaryNeeds?: string;
 };
 
 export type UserResponse = {
   user: User;
 };
 
+export type UpdateProfileData = {
+  name?: string;
+  budgetPreferences?: "low" | "medium" | "high";
+  dietaryNeeds?: string;
+};
+
 // Fetch current user
 export async function getCurrentUser(): Promise<User> {
   const data = await request<UserResponse>("/api/auth/me");
   return data.user;
+}
+
+// Update user profile
+export async function updateProfile(data: UpdateProfileData): Promise<User> {
+  const response = await request<UserResponse>("/api/auth/profile", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+  return response.user;
+}
+
+// Food usage types
+export type FoodUsageLog = {
+  id: number;
+  itemName: string;
+  quantity: number;
+  category: string;
+  usageDate: string;
+  createdAt: string;
+};
+
+export type FoodUsageLogData = {
+  itemName: string;
+  quantity: number;
+  category: string;
+  usageDate?: string;
+};
+
+export type FoodUsageLogResponse = {
+  message: string;
+  log: FoodUsageLog;
+};
+
+export type BulkFoodUsageResponse = {
+  message: string;
+  logs: FoodUsageLog[];
+};
+
+export type FoodUsageLogsResponse = {
+  logs: FoodUsageLog[];
+};
+
+// Create a single food usage log
+export async function createFoodUsageLog(
+  data: FoodUsageLogData
+): Promise<FoodUsageLog> {
+  const response = await request<FoodUsageLogResponse>("/api/food-usage", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  return response.log;
+}
+
+// Bulk create food usage logs
+export async function bulkCreateFoodUsageLogs(
+  logs: FoodUsageLogData[]
+): Promise<FoodUsageLog[]> {
+  const response = await request<BulkFoodUsageResponse>("/api/food-usage/bulk", {
+    method: "POST",
+    body: JSON.stringify({ logs }),
+  });
+  return response.logs;
+}
+
+// Get food usage logs for a specific date (defaults to today)
+export async function getFoodUsageLogs(date?: string): Promise<FoodUsageLog[]> {
+  const url = date
+    ? `/api/food-usage?date=${encodeURIComponent(date)}`
+    : "/api/food-usage";
+  const response = await request<FoodUsageLogsResponse>(url);
+  return response.logs;
+}
+
+// User inventory types
+export type UserInventoryItem = {
+  id: number;
+  itemName: string;
+  quantity: number;
+  category: string;
+  purchaseDate?: string | null;
+  expirationDate?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UserInventoryItemData = {
+  itemName: string;
+  quantity: number;
+  category: string;
+  purchaseDate?: string;
+  expirationDate?: string;
+  notes?: string;
+};
+
+export type UserInventoryItemResponse = {
+  message: string;
+  item: UserInventoryItem;
+};
+
+export type BulkUserInventoryResponse = {
+  message: string;
+  items: UserInventoryItem[];
+};
+
+export type UserInventoryItemsResponse = {
+  items: UserInventoryItem[];
+};
+
+// Get user inventory items
+export async function getUserInventory(): Promise<UserInventoryItem[]> {
+  const response = await request<UserInventoryItemsResponse>("/api/user-inventory");
+  return response.items;
+}
+
+// Create a single inventory item
+export async function createUserInventoryItem(
+  data: UserInventoryItemData
+): Promise<UserInventoryItem> {
+  const response = await request<UserInventoryItemResponse>("/api/user-inventory", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  return response.item;
+}
+
+// Bulk create inventory items
+export async function bulkCreateUserInventoryItems(
+  items: UserInventoryItemData[]
+): Promise<UserInventoryItem[]> {
+  const response = await request<BulkUserInventoryResponse>("/api/user-inventory/bulk", {
+    method: "POST",
+    body: JSON.stringify({ items }),
+  });
+  return response.items;
+}
+
+// Update an inventory item
+export async function updateUserInventoryItem(
+  id: number,
+  data: Partial<UserInventoryItemData>
+): Promise<UserInventoryItem> {
+  const response = await request<UserInventoryItemResponse>(`/api/user-inventory/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+  return response.item;
+}
+
+// Delete an inventory item
+export async function deleteUserInventoryItem(id: number): Promise<void> {
+  await request<{ message: string }>(`/api/user-inventory/${id}`, {
+    method: "DELETE",
+  });
 }
 

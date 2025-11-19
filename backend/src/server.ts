@@ -68,6 +68,20 @@ app.get("/api/templates", async (_req, res) => {
   }
 });
 
+app.get("/api/inventory", async (_req, res) => {
+  try {
+    const rows = await sql`
+      SELECT id, item_name, category, expiration_days, cost_per_unit
+      FROM food_inventory
+      ORDER BY category, item_name
+    `;
+    res.json({ items: rows });
+  } catch (error) {
+    console.error("Inventory query failed", error);
+    res.status(500).json({ message: "Failed to load food inventory" });
+  }
+});
+
 // Authentication endpoints
 app.post("/api/auth/signup", async (req, res) => {
   try {
@@ -242,7 +256,8 @@ app.get("/api/auth/me", async (req, res) => {
     const decoded = verifyToken(token);
 
     const [user] = await sql`
-      SELECT id, email, name, avatar_url, created_at FROM users WHERE id = ${decoded.userId}
+      SELECT id, email, name, avatar_url, budget_preferences, dietary_needs, created_at 
+      FROM users WHERE id = ${decoded.userId}
     `;
 
     if (!user) {
@@ -255,11 +270,527 @@ app.get("/api/auth/me", async (req, res) => {
         email: user.email,
         name: user.name,
         avatarUrl: user.avatar_url,
+        budgetPreferences: user.budget_preferences,
+        dietaryNeeds: user.dietary_needs,
       },
     });
   } catch (error) {
     console.error("Auth check failed", error);
     res.status(401).json({ message: "Invalid token" });
+  }
+});
+
+app.put("/api/auth/profile", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const body = z
+      .object({
+        name: z.string().min(1).optional(),
+        budgetPreferences: z.enum(["low", "medium", "high"]).optional(),
+        dietaryNeeds: z.string().max(500).optional(),
+      })
+      .parse(req.body);
+
+    const updateFields: string[] = [];
+    const updateValues: any[] = [];
+
+    if (body.name !== undefined) {
+      updateFields.push("name = $" + (updateValues.length + 1));
+      updateValues.push(body.name);
+    }
+
+    if (body.budgetPreferences !== undefined) {
+      updateFields.push("budget_preferences = $" + (updateValues.length + 1));
+      updateValues.push(body.budgetPreferences);
+    }
+
+    if (body.dietaryNeeds !== undefined) {
+      updateFields.push("dietary_needs = $" + (updateValues.length + 1));
+      updateValues.push(body.dietaryNeeds);
+    }
+
+    if (Object.keys(body).length === 0) {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+
+    // Update fields individually if provided
+    if (body.name !== undefined) {
+      await sql`UPDATE users SET name = ${body.name} WHERE id = ${decoded.userId}`;
+    }
+    if (body.budgetPreferences !== undefined) {
+      await sql`UPDATE users SET budget_preferences = ${body.budgetPreferences} WHERE id = ${decoded.userId}`;
+    }
+    if (body.dietaryNeeds !== undefined) {
+      await sql`UPDATE users SET dietary_needs = ${body.dietaryNeeds} WHERE id = ${decoded.userId}`;
+    }
+
+    // Always update the updated_at timestamp
+    await sql`UPDATE users SET updated_at = NOW() WHERE id = ${decoded.userId}`;
+
+    // Fetch the updated user
+    const [updatedUser] = await sql`
+      SELECT id, email, name, avatar_url, budget_preferences, dietary_needs
+      FROM users
+      WHERE id = ${decoded.userId}
+    `;
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        name: updatedUser.name,
+        avatarUrl: updatedUser.avatar_url,
+        budgetPreferences: updatedUser.budget_preferences,
+        dietaryNeeds: updatedUser.dietary_needs,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.issues[0]?.message });
+    }
+    console.error("Profile update failed", error);
+    res.status(500).json({ message: "Failed to update profile" });
+  }
+});
+
+// Food usage endpoints
+app.post("/api/food-usage", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const body = z
+      .object({
+        itemName: z.string().min(1),
+        quantity: z.coerce.number().positive(),
+        category: z.string().min(1),
+        usageDate: z.string().optional(),
+      })
+      .parse(req.body);
+
+    const usageDate = body.usageDate
+      ? new Date(body.usageDate)
+      : new Date();
+
+    const [log] = await sql`
+      INSERT INTO food_usage_logs (user_id, item_name, quantity, category, usage_date)
+      VALUES (${decoded.userId}, ${body.itemName}, ${body.quantity}, ${body.category}, ${usageDate.toISOString().split('T')[0]})
+      RETURNING id, item_name, quantity, category, usage_date, created_at
+    `;
+
+    res.status(201).json({
+      message: "Food usage logged successfully",
+      log: {
+        id: log.id,
+        itemName: log.item_name,
+        quantity: Number(log.quantity),
+        category: log.category,
+        usageDate: log.usage_date,
+        createdAt: log.created_at,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.issues[0]?.message });
+    }
+    console.error("Food usage log failed", error);
+    res.status(500).json({ message: "Failed to log food usage" });
+  }
+});
+
+app.post("/api/food-usage/bulk", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const body = z
+      .object({
+        logs: z.array(
+          z.object({
+            itemName: z.string().min(1),
+            quantity: z.coerce.number().positive(),
+            category: z.string().min(1),
+            usageDate: z.string().optional(),
+          })
+        ),
+      })
+      .parse(req.body);
+
+    const usageDate = body.logs[0]?.usageDate
+      ? new Date(body.logs[0].usageDate)
+      : new Date();
+    const dateStr = usageDate.toISOString().split('T')[0];
+
+    const insertedLogs = [];
+    for (const log of body.logs) {
+      try {
+        const [inserted] = await sql`
+          INSERT INTO food_usage_logs (user_id, item_name, quantity, category, usage_date)
+          VALUES (${decoded.userId}, ${log.itemName}, ${log.quantity}, ${log.category}, ${dateStr})
+          RETURNING id, item_name, quantity, category, usage_date, created_at
+        `;
+        insertedLogs.push({
+          id: inserted.id,
+          itemName: inserted.item_name,
+          quantity: Number(inserted.quantity),
+          category: inserted.category,
+          usageDate: inserted.usage_date,
+          createdAt: inserted.created_at,
+        });
+      } catch (err) {
+        console.error(`Failed to insert log for ${log.itemName}:`, err);
+      }
+    }
+
+    res.status(201).json({
+      message: `Successfully logged ${insertedLogs.length} food usage entries`,
+      logs: insertedLogs,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.issues[0]?.message });
+    }
+    console.error("Bulk food usage log failed", error);
+    res.status(500).json({ message: "Failed to log food usage" });
+  }
+});
+
+app.get("/api/food-usage", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const date = req.query.date as string | undefined;
+    const dateFilter = date ? new Date(date) : new Date();
+    const dateStr = dateFilter.toISOString().split('T')[0];
+
+    const logs = await sql`
+      SELECT id, item_name, quantity, category, usage_date, created_at
+      FROM food_usage_logs
+      WHERE user_id = ${decoded.userId}
+        AND usage_date = ${dateStr}
+      ORDER BY created_at DESC
+    `;
+
+    res.json({
+      logs: logs.map((log) => ({
+        id: log.id,
+        itemName: log.item_name,
+        quantity: Number(log.quantity),
+        category: log.category,
+        usageDate: log.usage_date,
+        createdAt: log.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error("Get food usage failed", error);
+    res.status(500).json({ message: "Failed to fetch food usage logs" });
+  }
+});
+
+// User inventory endpoints
+app.get("/api/user-inventory", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const items = await sql`
+      SELECT id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+      FROM user_inventory
+      WHERE user_id = ${decoded.userId}
+      ORDER BY expiration_date ASC NULLS LAST, item_name ASC
+    `;
+
+    res.json({
+      items: items.map((item) => ({
+        id: item.id,
+        itemName: item.item_name,
+        quantity: Number(item.quantity),
+        category: item.category,
+        purchaseDate: item.purchase_date,
+        expirationDate: item.expiration_date,
+        notes: item.notes,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+      })),
+    });
+  } catch (error) {
+    console.error("Get user inventory failed", error);
+    res.status(500).json({ message: "Failed to fetch user inventory" });
+  }
+});
+
+app.post("/api/user-inventory", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const body = z
+      .object({
+        itemName: z.string().min(1),
+        quantity: z.coerce.number().positive(),
+        category: z.string().min(1),
+        purchaseDate: z.string().optional(),
+        expirationDate: z.string().optional(),
+        notes: z.string().optional(),
+      })
+      .parse(req.body);
+
+    const [item] = await sql`
+      INSERT INTO user_inventory (user_id, item_name, quantity, category, purchase_date, expiration_date, notes)
+      VALUES (
+        ${decoded.userId},
+        ${body.itemName},
+        ${body.quantity},
+        ${body.category},
+        ${body.purchaseDate || null},
+        ${body.expirationDate || null},
+        ${body.notes || null}
+      )
+      RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+    `;
+
+    res.status(201).json({
+      message: "Item added to inventory successfully",
+      item: {
+        id: item.id,
+        itemName: item.item_name,
+        quantity: Number(item.quantity),
+        category: item.category,
+        purchaseDate: item.purchase_date,
+        expirationDate: item.expiration_date,
+        notes: item.notes,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.issues[0]?.message });
+    }
+    console.error("Add inventory item failed", error);
+    res.status(500).json({ message: "Failed to add item to inventory" });
+  }
+});
+
+app.post("/api/user-inventory/bulk", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const body = z
+      .object({
+        items: z.array(
+          z.object({
+            itemName: z.string().min(1),
+            quantity: z.coerce.number().positive(),
+            category: z.string().min(1),
+            purchaseDate: z.string().optional(),
+            expirationDate: z.string().optional(),
+            notes: z.string().optional(),
+          })
+        ),
+      })
+      .parse(req.body);
+
+    const insertedItems = [];
+    for (const item of body.items) {
+      try {
+        const [inserted] = await sql`
+          INSERT INTO user_inventory (user_id, item_name, quantity, category, purchase_date, expiration_date, notes)
+          VALUES (
+            ${decoded.userId},
+            ${item.itemName},
+            ${item.quantity},
+            ${item.category},
+            ${item.purchaseDate || null},
+            ${item.expirationDate || null},
+            ${item.notes || null}
+          )
+          RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+        `;
+        insertedItems.push({
+          id: inserted.id,
+          itemName: inserted.item_name,
+          quantity: Number(inserted.quantity),
+          category: inserted.category,
+          purchaseDate: inserted.purchase_date,
+          expirationDate: inserted.expiration_date,
+          notes: inserted.notes,
+          createdAt: inserted.created_at,
+          updatedAt: inserted.updated_at,
+        });
+      } catch (err) {
+        console.error(`Failed to insert item ${item.itemName}:`, err);
+      }
+    }
+
+    res.status(201).json({
+      message: `Successfully added ${insertedItems.length} items to inventory`,
+      items: insertedItems,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.issues[0]?.message });
+    }
+    console.error("Bulk add inventory failed", error);
+    res.status(500).json({ message: "Failed to add items to inventory" });
+  }
+});
+
+app.put("/api/user-inventory/:id", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const itemId = parseInt(req.params.id);
+    if (isNaN(itemId)) {
+      return res.status(400).json({ message: "Invalid item ID" });
+    }
+
+    const body = z
+      .object({
+        itemName: z.string().min(1).optional(),
+        quantity: z.coerce.number().positive().optional(),
+        category: z.string().min(1).optional(),
+        purchaseDate: z.string().optional().nullable(),
+        expirationDate: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+      })
+      .parse(req.body);
+
+    // Update fields individually if provided
+    if (body.itemName !== undefined) {
+      await sql`UPDATE user_inventory SET item_name = ${body.itemName} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+    }
+    if (body.quantity !== undefined) {
+      await sql`UPDATE user_inventory SET quantity = ${body.quantity} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+    }
+    if (body.category !== undefined) {
+      await sql`UPDATE user_inventory SET category = ${body.category} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+    }
+    if (body.purchaseDate !== undefined) {
+      await sql`UPDATE user_inventory SET purchase_date = ${body.purchaseDate || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+    }
+    if (body.expirationDate !== undefined) {
+      await sql`UPDATE user_inventory SET expiration_date = ${body.expirationDate || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+    }
+    if (body.notes !== undefined) {
+      await sql`UPDATE user_inventory SET notes = ${body.notes || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+    }
+
+    // Always update the updated_at timestamp
+    await sql`UPDATE user_inventory SET updated_at = NOW() WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+
+    // Fetch the updated item
+    const [updatedItem] = await sql`
+      SELECT id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+      FROM user_inventory
+      WHERE id = ${itemId} AND user_id = ${decoded.userId}
+    `;
+
+    if (!updatedItem) {
+      return res.status(404).json({ message: "Item not found" });
+    }
+
+    res.json({
+      message: "Item updated successfully",
+      item: {
+        id: updatedItem.id,
+        itemName: updatedItem.item_name,
+        quantity: Number(updatedItem.quantity),
+        category: updatedItem.category,
+        purchaseDate: updatedItem.purchase_date,
+        expirationDate: updatedItem.expiration_date,
+        notes: updatedItem.notes,
+        createdAt: updatedItem.created_at,
+        updatedAt: updatedItem.updated_at,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.issues[0]?.message });
+    }
+    console.error("Update inventory item failed", error);
+    res.status(500).json({ message: "Failed to update item" });
+  }
+});
+
+app.delete("/api/user-inventory/:id", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const itemId = parseInt(req.params.id);
+    if (isNaN(itemId)) {
+      return res.status(400).json({ message: "Invalid item ID" });
+    }
+
+    const result = await sql`
+      DELETE FROM user_inventory
+      WHERE id = ${itemId} AND user_id = ${decoded.userId}
+      RETURNING id
+    `;
+
+    if (result.length === 0) {
+      return res.status(404).json({ message: "Item not found" });
+    }
+
+    res.json({ message: "Item removed from inventory successfully" });
+  } catch (error) {
+    console.error("Delete inventory item failed", error);
+    res.status(500).json({ message: "Failed to remove item" });
   }
 });
 

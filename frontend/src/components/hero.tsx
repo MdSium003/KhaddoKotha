@@ -22,6 +22,12 @@ export function HeroSection({ mission }: HeroProps) {
         <button className="rounded-full border border-slate-900/20 bg-white px-5 py-2.5 text-slate-900">
           Download overview
         </button>
+        <a
+          href="/inventory"
+          className="rounded-full bg-emerald-600 px-5 py-2.5 text-white hover:bg-emerald-700 transition-colors"
+        >
+          General Inventory
+        </a>
       </div>
     </section>
   );
