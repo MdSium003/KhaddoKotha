@@ -23,6 +23,12 @@ export function HeroSection({ mission }: HeroProps) {
         <button className="rounded-full border border-slate-200 bg-white px-6 py-3 text-slate-700 transition hover:bg-slate-50 hover:border-slate-300">
           Share Your Story
         </button>
+        <a
+          href="/inventory"
+          className="rounded-full bg-emerald-600 px-5 py-2.5 text-white hover:bg-emerald-700 transition-colors"
+        >
+          General Inventory
+        </a>
       </div>
     </section>
   );
