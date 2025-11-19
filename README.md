@@ -29,6 +29,7 @@ Copy `frontend/.env.local.example` to `frontend/.env.local` and update:
 | Variable | Description |
 | --- | --- |
 | `NEXT_PUBLIC_BACKEND_URL` | URL of the backend server (defaults to `http://localhost:4000`) |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google OAuth Client ID (optional, see `frontend/GOOGLE_OAUTH_SETUP.md` for setup) |
 
 ## Running locally
 
@@ -53,6 +54,17 @@ npm run dev
 
 - Deploy the frontend to Vercel, Netlify, or any platform that supports Next.js 15. Remember to set `NEXT_PUBLIC_BACKEND_URL` to the deployed API URL.
 - Deploy the backend to Render, Railway, Fly.io, etc. Provide `DATABASE_URL` (from Neon) and keep `ALLOWED_ORIGINS` in sync with your frontend domains.
+
+## Google OAuth Setup
+
+To enable Google sign-in functionality:
+
+1. Follow the detailed guide in `frontend/GOOGLE_OAUTH_SETUP.md`
+2. Get your Google OAuth Client ID from [Google Cloud Console](https://console.cloud.google.com/)
+3. Add `NEXT_PUBLIC_GOOGLE_CLIENT_ID` to your `frontend/.env.local` file
+4. Restart your frontend server
+
+Without the Google Client ID, the Google sign-in button will show a configuration message.
 
 ## Extending the starter
 

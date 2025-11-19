@@ -1,18 +1,18 @@
 export const highlightSections = [
   {
-    title: "Predictive insights",
-    body: "Surface early indicators from vitals, lab work, and lifestyle data to guide proactive care.",
+    title: "Fresh Ingredients",
+    body: "Sourced directly from local farmers to ensure the highest quality and freshness for your meals.",
   },
   {
-    title: "Clinician Copilot",
-    body: "Summaries and alerts tuned for bedside workflows keep teams aligned without dashboards overload.",
+    title: "Community Recipes",
+    body: "Explore a vast collection of recipes shared by food enthusiasts and professional chefs alike.",
   },
   {
-    title: "Patient trust layer",
-    body: "Explainable AI narratives keep patients informed about why a flag was raised and what to do next.",
+    title: "Culinary Events",
+    body: "Join local food festivals, cooking classes, and tasting events to expand your palate.",
   },
 ];
 
 export const missionCopy =
-  "KhaddoKotha watches over millions of biometric signals, triages anomalies, and briefs clinicians before patients even feel a symptom. We deliver calm, explainable intelligence so you can intervene sooner.";
+  "KhaddoKotha connects food lovers with the best local flavors, recipes, and culinary experiences. We believe in the power of food to bring people together and create lasting memories.";
 

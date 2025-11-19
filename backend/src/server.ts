@@ -32,9 +32,32 @@ const sql = neon(config.DATABASE_URL);
 
 app.use(
   cors({
-    origin: config.ALLOWED_ORIGINS
-      ? config.ALLOWED_ORIGINS.split(",").map((value) => value.trim())
-      : true,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      // If ALLOWED_ORIGINS is set, check against it
+      if (config.ALLOWED_ORIGINS) {
+        const allowedOrigins = config.ALLOWED_ORIGINS.split(",").map((value) => value.trim());
+        // Also allow localhost and common network IPs in development
+        const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
+        const isNetworkIP = /^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin) || 
+                           /^http:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/.test(origin) ||
+                           /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?$/.test(origin);
+        
+        if (allowedOrigins.includes(origin) || isLocalhost || isNetworkIP) {
+          return callback(null, true);
+        }
+        // In development, allow all origins if it's a network IP
+        if (process.env.NODE_ENV !== "production") {
+          return callback(null, true);
+        }
+        return callback(new Error("Not allowed by CORS"));
+      }
+      
+      // If no ALLOWED_ORIGINS is set, allow all origins
+      callback(null, true);
+    },
     credentials: true,
   }),
 );
@@ -106,6 +129,7 @@ app.post("/api/auth/signup", async (req, res) => {
         id: newUser.id,
         email: newUser.email,
         name: newUser.name,
+        avatarUrl: undefined,
       },
       token,
     });
@@ -124,7 +148,7 @@ app.post("/api/auth/login", async (req, res) => {
 
     // Find user
     const [user] = await sql`
-      SELECT id, email, name, password_hash FROM users WHERE email = ${body.email}
+      SELECT id, email, name, password_hash, avatar_url FROM users WHERE email = ${body.email}
     `;
 
     if (!user || !user.password_hash) {
@@ -147,6 +171,7 @@ app.post("/api/auth/login", async (req, res) => {
         id: user.id,
         email: user.email,
         name: user.name,
+        avatarUrl: user.avatar_url || undefined,
       },
       token,
     });
@@ -161,14 +186,16 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.post("/api/auth/google", async (req, res) => {
   try {
-    const { googleId, email, name, avatarUrl } = z
+    const body = z
       .object({
-        googleId: z.string(),
+        googleId: z.string().min(1),
         email: z.string().email(),
-        name: z.string(),
-        avatarUrl: z.string().url().optional(),
+        name: z.string().min(1),
+        avatarUrl: z.union([z.string().url(), z.literal("")]).optional(),
       })
       .parse(req.body);
+    
+    const { googleId, email, name, avatarUrl } = body;
 
     // Check if user exists with Google ID
     const googleUserResult = await sql`
@@ -187,7 +214,7 @@ app.post("/api/auth/google", async (req, res) => {
         // Link Google account to existing user
         await sql`
           UPDATE users 
-          SET google_id = ${googleId}, avatar_url = ${avatarUrl || null}
+          SET google_id = ${googleId}, avatar_url = ${avatarUrl && avatarUrl !== "" ? avatarUrl : null}
           WHERE id = ${existingUser.id}
         `;
         user = existingUser;
@@ -195,7 +222,7 @@ app.post("/api/auth/google", async (req, res) => {
         // Create new user
         const newUserResult = await sql`
           INSERT INTO users (email, name, google_id, avatar_url)
-          VALUES (${email}, ${name}, ${googleId}, ${avatarUrl || null})
+          VALUES (${email}, ${name}, ${googleId}, ${avatarUrl && avatarUrl !== "" ? avatarUrl : null})
           RETURNING id, email, name
         `;
         const newUser = newUserResult[0];
@@ -267,7 +294,8 @@ app.use((_req, res) => {
   res.status(404).json({ message: "Route not found" });
 });
 
-app.listen(config.PORT, () => {
+app.listen(config.PORT, "0.0.0.0", () => {
   console.log(`API ready on http://localhost:${config.PORT}`);
+  console.log(`API also accessible on your network IP at port ${config.PORT}`);
 });
 

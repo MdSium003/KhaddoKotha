@@ -1,5 +1,28 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+// Get API base URL - use environment variable or detect from current host
+function getApiBaseUrl(): string {
+  // Use environment variable if set
+  if (typeof window !== "undefined" && (window as any).__NEXT_PUBLIC_BACKEND_URL__) {
+    return (window as any).__NEXT_PUBLIC_BACKEND_URL__;
+  }
+  if (process.env.NEXT_PUBLIC_BACKEND_URL) {
+    return process.env.NEXT_PUBLIC_BACKEND_URL;
+  }
+  
+  // In browser, use the same host as the frontend but with port 4000
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+    // If accessing from localhost, use localhost for backend
+    if (host === "localhost" || host === "127.0.0.1") {
+      return "http://localhost:4000";
+    }
+    // Otherwise use the same host (for network access)
+    return `${protocol}//${host}:4000`;
+  }
+  
+  // Server-side default
+  return "http://localhost:4000";
+}
 
 type TemplateItem = {
   title: string;
@@ -25,18 +48,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers,
-    cache: init?.cache ?? "no-store",
-  });
+  const apiBaseUrl = getApiBaseUrl();
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || `Request failed with status ${response.status}`);
+  try {
+    const response = await fetch(`${apiBaseUrl}${path}`, {
+      ...init,
+      headers,
+      cache: init?.cache ?? "no-store",
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Request failed with status ${response.status}`);
+    }
+
+    return response.json() as Promise<T>;
+  } catch (error) {
+    // Handle network errors (backend not running, CORS, etc.)
+    if (error instanceof TypeError && error.message.includes("fetch")) {
+      throw new Error(
+        `Unable to connect to the server. Please make sure the backend is running at ${apiBaseUrl}`
+      );
+    }
+    // Re-throw other errors
+    throw error;
   }
-
-  return response.json() as Promise<T>;
 }
 
 export async function fetchHealth(): Promise<HealthResponse> {
@@ -58,6 +94,7 @@ export type AuthResponse = {
     id: number;
     email: string;
     name: string;
+    avatarUrl?: string;
   };
   token: string;
 };

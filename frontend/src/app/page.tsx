@@ -1,11 +1,11 @@
 import { SiteHeader } from "@/components/header";
 import { HeroSection } from "@/components/hero";
 import { ModulesGrid } from "@/components/modules-grid";
-import { PlatformHighlights } from "@/components/platform-highlights";
 import { SiteFooter } from "@/components/footer";
-import { SystemStatusCard } from "@/components/system-status-card";
+import { ReviewsSection } from "@/components/reviews-scrolling";
+import { FadeIn } from "@/components/fade-in";
 import { fetchHealth, fetchTemplates } from "@/lib/api";
-import { highlightSections, missionCopy } from "@/lib/content";
+import { missionCopy } from "@/lib/content";
 
 export default async function Home() {
   const [health, templates] = await Promise.all([
@@ -16,23 +16,27 @@ export default async function Home() {
   return (
     <div className="min-h-screen bg-[#BCEBD7] text-slate-900">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-10">
-        <SiteHeader />
+        <FadeIn>
+          <SiteHeader />
+        </FadeIn>
 
         <main className="mt-10 flex flex-1 flex-col gap-10">
-          <HeroSection mission={missionCopy} />
+          <FadeIn delay={0.2}>
+            <HeroSection mission={missionCopy} />
+          </FadeIn>
 
-          <section id="platform" className="grid gap-6 md:grid-cols-[1.1fr,0.9fr]">
-            <PlatformHighlights highlights={highlightSections} />
-            <SystemStatusCard
-              ok={health.ok ?? false}
-              databaseVersion={health.database_version}
-            />
-          </section>
+          <FadeIn delay={0.4}>
+            <ReviewsSection />
+          </FadeIn>
 
-          <ModulesGrid templates={templates} />
+          <FadeIn delay={0.6}>
+            <ModulesGrid templates={templates} />
+          </FadeIn>
         </main>
 
-        <SiteFooter />
+        <FadeIn delay={0.8}>
+          <SiteFooter />
+        </FadeIn>
       </div>
     </div>
   );
