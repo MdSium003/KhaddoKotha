@@ -7,7 +7,7 @@ function getApiBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_BACKEND_URL) {
     return process.env.NEXT_PUBLIC_BACKEND_URL;
   }
-  
+
   // In browser, use the same host as the frontend but with port 4000
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
@@ -19,7 +19,7 @@ function getApiBaseUrl(): string {
     // Otherwise use the same host (for network access)
     return `${protocol}//${host}:4000`;
   }
-  
+
   // Server-side default
   return "http://localhost:4000";
 }
@@ -37,11 +37,11 @@ type HealthResponse = {
   timestamp?: string;
 };
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAuthToken();
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(init?.headers || {}),
+    ...(init?.headers as Record<string, string> || {}),
   };
 
   if (token) {

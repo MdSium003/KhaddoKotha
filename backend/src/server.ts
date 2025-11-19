@@ -3,6 +3,7 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import { neon } from "@neondatabase/serverless";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
 import {
   signupSchema,
@@ -18,6 +19,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(4000),
   ALLOWED_ORIGINS: z.string().optional(),
   JWT_SECRET: z.string().default("your-secret-key-change-in-production"),
+  GEMINI_API_KEY: z.string().optional(),
 });
 
 const config = envSchema.parse({
@@ -25,26 +27,29 @@ const config = envSchema.parse({
   PORT: process.env.PORT,
   ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
   JWT_SECRET: process.env.JWT_SECRET,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
 });
 
 const app = express();
 const sql = neon(config.DATABASE_URL);
+const genAI = config.GEMINI_API_KEY ? new GoogleGenerativeAI(config.GEMINI_API_KEY) : null;
+console.log("Gemini API Key configured:", !!config.GEMINI_API_KEY);
 
 app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return callback(null, true);
-      
+
       // If ALLOWED_ORIGINS is set, check against it
       if (config.ALLOWED_ORIGINS) {
         const allowedOrigins = config.ALLOWED_ORIGINS.split(",").map((value) => value.trim());
         // Also allow localhost and common network IPs in development
         const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
-        const isNetworkIP = /^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin) || 
-                           /^http:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/.test(origin) ||
-                           /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?$/.test(origin);
-        
+        const isNetworkIP = /^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin) ||
+          /^http:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/.test(origin) ||
+          /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?$/.test(origin);
+
         if (allowedOrigins.includes(origin) || isLocalhost || isNetworkIP) {
           return callback(null, true);
         }
@@ -54,7 +59,7 @@ app.use(
         }
         return callback(new Error("Not allowed by CORS"));
       }
-      
+
       // If no ALLOWED_ORIGINS is set, allow all origins
       callback(null, true);
     },
@@ -208,7 +213,7 @@ app.post("/api/auth/google", async (req, res) => {
         avatarUrl: z.union([z.string().url(), z.literal("")]).optional(),
       })
       .parse(req.body);
-    
+
     const { googleId, email, name, avatarUrl } = body;
 
     // Check if user exists with Google ID
@@ -804,22 +809,50 @@ app.delete("/api/user-inventory/:id", async (req, res) => {
       return res.status(400).json({ message: "Invalid item ID" });
     }
 
-    const result = await sql`
-      DELETE FROM user_inventory
+    await sql`
+      DELETE FROM user_inventory 
       WHERE id = ${itemId} AND user_id = ${decoded.userId}
-      RETURNING id
     `;
 
-    if (result.length === 0) {
-      return res.status(404).json({ message: "Item not found" });
-    }
-
-    res.json({ message: "Item removed from inventory successfully" });
+    res.json({ message: "Item deleted successfully" });
   } catch (error) {
     console.error("Delete inventory item failed", error);
-    res.status(500).json({ message: "Failed to remove item" });
+    res.status(500).json({ message: "Failed to delete item" });
   }
 });
+
+// Waste to Asset AI Endpoint
+app.post("/api/waste-to-asset", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!genAI) {
+      return res.status(503).json({ message: "AI service not configured (Missing API Key)" });
+    }
+
+    const body = z.object({
+      itemName: z.string().min(1),
+    }).parse(req.body);
+
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const prompt = `I have some wasted or overripe ${body.itemName}. Give me 3 creative, practical, and safe ways to repurpose it (e.g., recipes, gardening, DIY). Keep it concise. Format as a simple list.`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    res.json({ suggestions: text });
+  } catch (error) {
+    console.error("Waste to Asset AI failed. Error details:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ message: `AI Error: ${errorMessage}` });
+  }
+});
+
 
 app.use((_req, res) => {
   res.status(404).json({ message: "Route not found" });

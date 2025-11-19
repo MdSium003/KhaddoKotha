@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
 
 const navigation = [
-  { label: "Home", href: "/" },
-  { label: "Recipes", href: "/#recipes" },
-  { label: "Community", href: "/#community" },
-  { label: "About", href: "/about" },
+  { label: "Apps", href: "/#features" },
+  { label: "Food Preservative", href: "/food-preservative" },
+  { label: "Waste to Asset", href: "/waste-to-asset" },
+  { label: "Community", href: "/community" },
+  { label: "Pricing", href: "/pricing" },
+  { label: "Contact", href: "/contact" },
 ];
 
 export function SiteHeader() {
