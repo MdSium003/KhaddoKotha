@@ -87,6 +87,118 @@ export async function fetchTemplates(): Promise<TemplateItem[]> {
   return data.items;
 }
 
+// Waste to Asset types
+export type WasteToAssetIdea = {
+  title: string;
+  summary: string;
+  details: string;
+};
+
+export type WasteToAssetResponse = {
+  canCombine: boolean;
+  recipeIdeas: WasteToAssetIdea[];
+  nonRecipeIdeas: WasteToAssetIdea[];
+};
+
+export type WasteToAssetRequest = {
+  itemNames: string[];
+};
+
+// Notification types
+export type NotificationItem = {
+  id: number;
+  name: string;
+  expirationDate: string;
+};
+
+export type Notification = {
+  id: string;
+  type: "expired" | "expiring";
+  message: string;
+  items: NotificationItem[];
+  createdAt: string;
+};
+
+export type NotificationsResponse = {
+  notifications: Notification[];
+};
+
+export async function fetchNotifications(): Promise<Notification[]> {
+  const response = await request<NotificationsResponse>("/api/notifications");
+  return response.notifications;
+}
+
+// Community types
+export type CommunityPost = {
+  id: number;
+  user_id: number;
+  author_name: string;
+  avatar_url?: string;
+  post_type: "need" | "donate";
+  food_name: string;
+  quantity: number;
+  unit?: string;
+  target_date: string;
+  details?: string;
+  comment_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PostComment = {
+  id: number;
+  post_id: number;
+  user_id: number;
+  author_name: string;
+  avatar_url?: string;
+  comment_text: string;
+  created_at: string;
+};
+
+export async function fetchCommunityPosts(): Promise<CommunityPost[]> {
+  const response = await request<{ posts: CommunityPost[] }>("/api/community/posts");
+  return response.posts;
+}
+
+export async function createCommunityPost(data: {
+  postType: "need" | "donate";
+  foodName: string;
+  quantity: number;
+  unit?: string;
+  targetDate: string;
+  details?: string;
+}): Promise<CommunityPost> {
+  const response = await request<{ post: any }>("/api/community/posts", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  return response.post;
+}
+
+export async function deleteCommunityPost(postId: number): Promise<void> {
+  await request(`/api/community/posts/${postId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function addComment(postId: number, commentText: string): Promise<PostComment> {
+  const response = await request<{ comment: PostComment }>(`/api/community/posts/${postId}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ commentText }),
+  });
+  return response.comment;
+}
+
+export async function deleteComment(commentId: number): Promise<void> {
+  await request(`/api/community/comments/${commentId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchPostWithComments(postId: number): Promise<{ post: CommunityPost; comments: PostComment[] }> {
+  return await request<{ post: CommunityPost; comments: PostComment[] }>(`/api/community/posts/${postId}`);
+}
+
 // Food inventory types
 export type FoodInventoryItem = {
   id: number;
