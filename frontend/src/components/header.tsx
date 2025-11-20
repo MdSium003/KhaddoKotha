@@ -8,7 +8,6 @@ import { useState, useRef, useEffect } from "react";
 const navigation = [
   { label: "Food Preservative", href: "/food-preservative" },
   { label: "Waste to Asset", href: "/waste-to-asset" },
-  { label: "Diet Plan", href: "/diet-plan" },
   { label: "Community", href: "/community" },
 ];
 
