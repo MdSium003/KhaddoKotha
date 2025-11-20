@@ -1240,6 +1240,7 @@ app.delete("/api/community/comments/:id", async (req, res) => {
   }
 });
 
+
 // Chatbot Endpoint
 app.post("/api/chatbot", async (req, res) => {
   try {
@@ -1297,6 +1298,103 @@ KhaddoKotha:`;
   }
 });
 
+
+
+// Diet Planner Endpoint
+app.post("/api/diet-planner/generate", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    if (!genAI) {
+      return res.status(503).json({ message: "AI service not configured (Missing API Key)" });
+    }
+
+    const body = z.object({
+      budget: z.number().positive(),
+      preference: z.enum(["Veg", "Non-Veg", "Balanced"]),
+    }).parse(req.body);
+
+    // Fetch User Inventory (Home)
+    const userInventory = await sql`
+      SELECT item_name, category, quantity, expiration_date
+      FROM user_inventory
+      WHERE user_id = ${decoded.userId} AND quantity > 0
+    `;
+
+    // Fetch General Store Inventory
+    const storeInventory = await sql`
+      SELECT item_name, category, cost_per_unit, expiration_days
+      FROM food_inventory
+    `;
+
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const prompt = `
+      You are a smart diet planner. Create a one-person daily meal plan (Breakfast, Lunch, Dinner) based on the following constraints:
+
+      **User Inputs:**
+      - Daily Budget: $${body.budget}
+      - Meal Preference: ${body.preference}
+
+      **Inventories:**
+      1. **Home Inventory** (Cost: $0, Prioritize these to reduce waste):
+         ${JSON.stringify(userInventory)}
+      2. **General Store Inventory** (Cost: specified per unit, use to fill gaps):
+         ${JSON.stringify(storeInventory)}
+
+      **Rules:**
+      1. **Categorize Foods:** Ensure a balance of Carb, Protein, Vegetable, Fruit/Dairy/Extras.
+      2. **Prioritize Home Items:** Use available home items first.
+      3. **Fill Gaps:** Buy cheapest suitable items from store inventory if needed.
+      4. **Budget:** Total cost of STORE items must be <= $${body.budget}.
+      5. **Preference:** 
+         - Veg: No meat/fish/egg.
+         - Non-Veg: Allow meat/egg/fish.
+         - Balanced: Mix freely.
+      7. **Nutrition Analysis:** Calculate approximate total nutrition (Calories, Protein, Carbs, Fats, Fiber) for the entire day's plan. Compare these with standard daily recommendations for an average adult (approx. 2000kcal).
+
+      **Output Format (JSON only):**
+      {
+        "meals": {
+          "breakfast": [{ "item": "Name", "source": "Home" | "Store", "cost": 0.00 }],
+          "lunch": [{ "item": "Name", "source": "Home" | "Store", "cost": 0.00 }],
+          "dinner": [{ "item": "Name", "source": "Home" | "Store", "cost": 0.00 }]
+        },
+        "totalCost": 0.00,
+        "homeItemsUsed": ["Item1", "Item2"],
+        "storeItemsUsed": ["Item3", "Item4"],
+        "sustainabilityImpact": "Brief text about money saved or waste prevented",
+        "expiringItemsUsed": ["Item1"],
+        "nutritionAnalysis": {
+          "calories": { "provided": 0, "recommended": 2000, "unit": "kcal" },
+          "protein": { "provided": 0, "recommended": 50, "unit": "g" },
+          "carbs": { "provided": 0, "recommended": 275, "unit": "g" },
+          "fats": { "provided": 0, "recommended": 78, "unit": "g" },
+          "fiber": { "provided": 0, "recommended": 28, "unit": "g" }
+        }
+      }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const dietPlan = JSON.parse(cleanedText);
+
+    res.json(dietPlan);
+
+  } catch (error) {
+    console.error("Diet planner generation failed", error);
+    res.status(500).json({ message: "Failed to generate diet plan" });
+  }
+});
 
 app.use((_req, res) => {
   res.status(404).json({ message: "Route not found" });
