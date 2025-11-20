@@ -463,7 +463,43 @@ export async function updateUserInventoryItem(
 // Delete an inventory item
 export async function deleteUserInventoryItem(id: number): Promise<void> {
   await request<{ message: string }>(`/api/user-inventory/${id}`, {
-    method: "DELETE",
+  });
+}
+
+// Diet Planner types
+export type MealItem = {
+  item: string;
+  source: "Home" | "Store";
+  cost: number;
+};
+
+export type DietPlan = {
+  meals: {
+    breakfast: MealItem[];
+    lunch: MealItem[];
+    dinner: MealItem[];
+  };
+  totalCost: number;
+  homeItemsUsed: string[];
+  storeItemsUsed: string[];
+  sustainabilityImpact: string;
+  expiringItemsUsed: string[];
+  nutritionAnalysis?: {
+    calories: { provided: number; recommended: number; unit: string };
+    protein: { provided: number; recommended: number; unit: string };
+    carbs: { provided: number; recommended: number; unit: string };
+    fats: { provided: number; recommended: number; unit: string };
+    fiber: { provided: number; recommended: number; unit: string };
+  };
+};
+
+export async function generateDietPlan(
+  budget: number,
+  preference: "Veg" | "Non-Veg" | "Balanced"
+): Promise<DietPlan> {
+  return request<DietPlan>("/api/diet-planner/generate", {
+    method: "POST",
+    body: JSON.stringify({ budget, preference }),
   });
 }
 

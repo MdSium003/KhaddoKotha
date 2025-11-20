@@ -20,6 +20,8 @@ import {
   type FoodUsageLogData,
   type UserInventoryItem,
   type UserInventoryItemData,
+  generateDietPlan,
+  type DietPlan,
 } from "@/lib/api";
 
 export default function ProfilePage() {
@@ -72,6 +74,14 @@ export default function ProfilePage() {
   // CSV upload state for inventory
   const [inventoryCsvFile, setInventoryCsvFile] = useState<File | null>(null);
   const [inventoryCsvLoading, setInventoryCsvLoading] = useState(false);
+
+  // Diet Planner state
+  const [showDietPlanner, setShowDietPlanner] = useState(false);
+  const [dietBudget, setDietBudget] = useState(5);
+  const [dietPreference, setDietPreference] = useState<"Veg" | "Non-Veg" | "Balanced">("Balanced");
+  const [dietPlan, setDietPlan] = useState<DietPlan | null>(null);
+  const [dietLoading, setDietLoading] = useState(false);
+  const [dietError, setDietError] = useState("");
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -497,6 +507,21 @@ export default function ProfilePage() {
       setError(err instanceof Error ? err.message : "Failed to remove item");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGenerateDietPlan = async () => {
+    setDietError("");
+    setDietLoading(true);
+    setDietPlan(null);
+
+    try {
+      const plan = await generateDietPlan(dietBudget, dietPreference);
+      setDietPlan(plan);
+    } catch (err) {
+      setDietError(err instanceof Error ? err.message : "Failed to generate diet plan");
+    } finally {
+      setDietLoading(false);
     }
   };
 
@@ -1337,6 +1362,178 @@ export default function ProfilePage() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* My Diet Planner Section */}
+          <div className="rounded-3xl border border-white/60 bg-white/90 p-8 shadow-lg">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">My Diet Planner</h2>
+                <p className="text-sm text-slate-600 mt-1">Generate a balanced daily meal plan</p>
+              </div>
+              <button
+                onClick={() => setShowDietPlanner(!showDietPlanner)}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+              >
+                {showDietPlanner ? "Hide" : "Open Planner"}
+              </button>
+            </div>
+
+            {showDietPlanner && (
+              <div className="space-y-6">
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Daily Budget ($)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="0.5"
+                      value={dietBudget}
+                      onChange={(e) => setDietBudget(parseFloat(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Meal Preference
+                    </label>
+                    <select
+                      value={dietPreference}
+                      onChange={(e) => setDietPreference(e.target.value as any)}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                    >
+                      <option value="Veg">Veg</option>
+                      <option value="Non-Veg">Non-Veg</option>
+                      <option value="Balanced">Balanced</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleGenerateDietPlan}
+                  disabled={dietLoading}
+                  className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {dietLoading ? "Generating Plan..." : "Generate Meal Plan"}
+                </button>
+
+                {dietError && (
+                  <div className="rounded-lg bg-red-50 border border-red-200 p-4">
+                    <p className="text-sm text-red-800">{dietError}</p>
+                  </div>
+                )}
+
+                {dietPlan && (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="grid gap-6 md:grid-cols-3">
+                      {/* Breakfast */}
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
+                        <h3 className="font-bold text-emerald-800 mb-3">Breakfast</h3>
+                        <ul className="space-y-2">
+                          {dietPlan.meals.breakfast.map((item, i) => (
+                            <li key={i} className="flex justify-between text-sm">
+                              <span className="text-slate-800">{item.item}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${item.source === 'Home' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {item.source} {item.source === 'Store' && `($${item.cost.toFixed(2)})`}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Lunch */}
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
+                        <h3 className="font-bold text-emerald-800 mb-3">Lunch</h3>
+                        <ul className="space-y-2">
+                          {dietPlan.meals.lunch.map((item, i) => (
+                            <li key={i} className="flex justify-between text-sm">
+                              <span className="text-slate-800">{item.item}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${item.source === 'Home' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {item.source} {item.source === 'Store' && `($${item.cost.toFixed(2)})`}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Dinner */}
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
+                        <h3 className="font-bold text-emerald-800 mb-3">Dinner</h3>
+                        <ul className="space-y-2">
+                          {dietPlan.meals.dinner.map((item, i) => (
+                            <li key={i} className="flex justify-between text-sm">
+                              <span className="text-slate-800">{item.item}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${item.source === 'Home' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {item.source} {item.source === 'Store' && `($${item.cost.toFixed(2)})`}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="font-semibold text-slate-700">Total Cost:</span>
+                        <span className={`font-bold ${dietPlan.totalCost <= dietBudget ? 'text-emerald-600' : 'text-red-600'}`}>
+                          ${dietPlan.totalCost.toFixed(2)} / ${dietBudget}
+                        </span>
+                      </div>
+                      <div className="text-sm text-slate-600">
+                        <p><span className="font-medium">Home Items Used:</span> {dietPlan.homeItemsUsed.join(", ")}</p>
+                        <p className="mt-1"><span className="font-medium">Store Items Used:</span> {dietPlan.storeItemsUsed.join(", ")}</p>
+                        {dietPlan.expiringItemsUsed.length > 0 && (
+                          <p className="mt-1 text-amber-600"><span className="font-medium">Expiring Items Used:</span> {dietPlan.expiringItemsUsed.join(", ")}</p>
+                        )}
+                      </div>
+                      {dietPlan.sustainabilityImpact && (
+                        <div className="mt-3 pt-3 border-t border-slate-100">
+                          <p className="text-sm text-emerald-700 italic">
+                            🌱 {dietPlan.sustainabilityImpact}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Nutrition Analysis Table */}
+                      {dietPlan.nutritionAnalysis && (
+                        <div className="mt-6 pt-4 border-t border-slate-200">
+                          <h4 className="font-bold text-slate-800 mb-3">Nutrition Analysis (Approx.)</h4>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                              <thead className="bg-slate-50 text-slate-700">
+                                <tr>
+                                  <th className="px-3 py-2 rounded-l-lg">Nutrient</th>
+                                  <th className="px-3 py-2">Provided</th>
+                                  <th className="px-3 py-2 rounded-r-lg">Recommended (Daily)</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {Object.entries(dietPlan.nutritionAnalysis).map(([key, data]) => (
+                                  <tr key={key}>
+                                    <td className="px-3 py-2 font-medium capitalize text-slate-700">{key}</td>
+                                    <td className="px-3 py-2 text-slate-600">
+                                      {data.provided} {data.unit}
+                                    </td>
+                                    <td className="px-3 py-2 text-slate-500">
+                                      {data.recommended} {data.unit}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          <p className="mt-2 text-xs text-slate-400 italic">
+                            *Recommended values based on a standard 2000kcal diet.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
