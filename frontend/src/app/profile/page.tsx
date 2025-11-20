@@ -5,73 +5,26 @@ import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/header";
 import { SiteFooter } from "@/components/footer";
 import { useAuth } from "@/contexts/auth-context";
-import {
-  updateProfile,
-  createFoodUsageLog,
-  bulkCreateFoodUsageLogs,
-  getFoodUsageLogs,
-  fetchFoodInventory,
-  getUserInventory,
-  createUserInventoryItem,
-  bulkCreateUserInventoryItems,
-  deleteUserInventoryItem,
-  type FoodUsageLog,
-  type FoodInventoryItem,
-  type FoodUsageLogData,
-  type UserInventoryItem,
-  type UserInventoryItemData,
-} from "@/lib/api";
+import { updateProfile, getFoodUsageLogs, type FoodUsageLog } from "@/lib/api";
 
 export default function ProfilePage() {
   const { user, loading: authLoading, logout, refreshUser } = useAuth();
   const router = useRouter();
+
+  // Profile editing state
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState("");
-  const [budgetPreferences, setBudgetPreferences] = useState<"low" | "medium" | "high" | "">("");
+  const [budgetPreference, setBudgetPreference] = useState<"low" | "medium" | "high" | "">("");
+  const [location, setLocation] = useState("");
   const [dietaryNeeds, setDietaryNeeds] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Food usage logging state
-  const [showFoodUsage, setShowFoodUsage] = useState(false);
-  const [foodUsageMethod, setFoodUsageMethod] = useState<"csv" | "manual" | "dropdown">("manual");
-  const [foodUsageLogs, setFoodUsageLogs] = useState<FoodUsageLog[]>([]);
-  const [inventoryItems, setInventoryItems] = useState<FoodInventoryItem[]>([]);
-  const [usageDate, setUsageDate] = useState(new Date().toISOString().split('T')[0]);
-
-  // Manual entry state
-  const [manualEntries, setManualEntries] = useState<FoodUsageLogData[]>([
-    { itemName: "", quantity: 1, category: "" },
-  ]);
-
-  // Dropdown selection state
-  const [selectedInventoryItem, setSelectedInventoryItem] = useState<number | "">("");
-  const [selectedQuantity, setSelectedQuantity] = useState(1);
-
-  // CSV upload state
-  const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [csvLoading, setCsvLoading] = useState(false);
-
-  // User inventory state
-  const [showUserInventory, setShowUserInventory] = useState(false);
-  const [userInventoryMethod, setUserInventoryMethod] = useState<"csv" | "manual" | "dropdown">("manual");
-  const [userInventoryItems, setUserInventoryItems] = useState<UserInventoryItem[]>([]);
-
-  // Manual entry state for inventory
-  const [manualInventoryEntries, setManualInventoryEntries] = useState<UserInventoryItemData[]>([
-    { itemName: "", quantity: 1, category: "", purchaseDate: "", expirationDate: "", notes: "" },
-  ]);
-
-  // Dropdown selection state for inventory
-  const [selectedInventoryItemId, setSelectedInventoryItemId] = useState<number | "">("");
-  const [selectedInventoryQuantity, setSelectedInventoryQuantity] = useState(1);
-  const [selectedPurchaseDate, setSelectedPurchaseDate] = useState("");
-  const [selectedExpirationDate, setSelectedExpirationDate] = useState("");
-
-  // CSV upload state for inventory
-  const [inventoryCsvFile, setInventoryCsvFile] = useState<File | null>(null);
-  const [inventoryCsvLoading, setInventoryCsvLoading] = useState(false);
+  // Last usage data
+  const [recentUsage, setRecentUsage] = useState<FoodUsageLog[]>([]);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"overview" | "usage" | "settings">("overview");
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -82,85 +35,45 @@ export default function ProfilePage() {
   useEffect(() => {
     if (user) {
       setName(user.name);
-      setBudgetPreferences(user.budgetPreferences || "");
+      setBudgetPreference(user.budgetPreferences || "");
+      setLocation(user.location || "");
       setDietaryNeeds(user.dietaryNeeds || "");
+      loadRecentUsage();
     }
   }, [user]);
 
-  useEffect(() => {
-    if (showFoodUsage && user) {
-      loadFoodUsageLogs();
-      loadInventory();
-    }
-  }, [showFoodUsage, usageDate, user]);
-
-  useEffect(() => {
-    if (showUserInventory && user) {
-      loadUserInventory();
-      if (userInventoryMethod === "dropdown") {
-        loadInventory();
+  const loadRecentUsage = async () => {
+    setUsageLoading(true);
+    try {
+      // Get last 7 days of usage
+      const logs: FoodUsageLog[] = [];
+      for (let i = 0; i < 7; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        const dayLogs = await getFoodUsageLogs(dateStr);
+        logs.push(...dayLogs);
       }
-    }
-  }, [showUserInventory, user, userInventoryMethod]);
-
-  const loadFoodUsageLogs = async () => {
-    try {
-      const logs = await getFoodUsageLogs(usageDate);
-      setFoodUsageLogs(logs);
-    } catch (err) {
-      console.error("Failed to load food usage logs:", err);
+      setRecentUsage(logs);
+    } catch (error) {
+      console.error("Failed to load usage logs:", error);
+    } finally {
+      setUsageLoading(false);
     }
   };
 
-  const loadInventory = async () => {
-    try {
-      const items = await fetchFoodInventory();
-      setInventoryItems(items);
-    } catch (err) {
-      console.error("Failed to load inventory:", err);
-    }
-  };
-
-  const loadUserInventory = async () => {
-    try {
-      const items = await getUserInventory();
-      setUserInventoryItems(items);
-    } catch (err) {
-      console.error("Failed to load user inventory:", err);
-    }
-  };
-
-  const handleSave = async () => {
+  const handleSaveProfile = async () => {
     setError("");
     setSuccess("");
     setLoading(true);
 
     try {
-      const updateData: {
-        name?: string;
-        budgetPreferences?: "low" | "medium" | "high";
-        dietaryNeeds?: string;
-      } = {};
-
-      if (name !== user?.name) {
-        updateData.name = name;
-      }
-      if (budgetPreferences !== (user?.budgetPreferences || "")) {
-        if (budgetPreferences) {
-          updateData.budgetPreferences = budgetPreferences as "low" | "medium" | "high";
-        }
-      }
-      if (dietaryNeeds !== (user?.dietaryNeeds || "")) {
-        updateData.dietaryNeeds = dietaryNeeds;
-      }
-
-      if (Object.keys(updateData).length === 0) {
-        setIsEditing(false);
-        setLoading(false);
-        return;
-      }
-
-      await updateProfile(updateData);
+      await updateProfile({
+        name,
+        budgetPreferences: budgetPreference,
+        location,
+        dietaryNeeds,
+      });
       await refreshUser();
       setSuccess("Profile updated successfully!");
       setIsEditing(false);
@@ -172,1174 +85,415 @@ export default function ProfilePage() {
     }
   };
 
-  const handleCancel = () => {
-    if (user) {
-      setName(user.name);
-      setBudgetPreferences(user.budgetPreferences || "");
-      setDietaryNeeds(user.dietaryNeeds || "");
-    }
-    setError("");
-    setSuccess("");
-    setIsEditing(false);
+  const handleLogout = async () => {
+    await logout();
+    router.push("/login");
   };
 
-  // Food usage handlers
-  const handleAddManualEntry = () => {
-    setManualEntries([...manualEntries, { itemName: "", quantity: 1, category: "" }]);
-  };
+  // Calculate usage statistics
+  const totalItemsUsed = recentUsage.length;
+  const totalQuantity = recentUsage.reduce((sum, log) => sum + log.quantity, 0);
+  const categories = [...new Set(recentUsage.map(log => log.category))];
 
-  const handleRemoveManualEntry = (index: number) => {
-    setManualEntries(manualEntries.filter((_, i) => i !== index));
-  };
+  // Group by category for chart
+  const categoryData = categories.map(cat => ({
+    category: cat,
+    count: recentUsage.filter(log => log.category === cat).length,
+    quantity: recentUsage.filter(log => log.category === cat).reduce((sum, log) => sum + log.quantity, 0)
+  }));
 
-  const handleManualEntryChange = (index: number, field: keyof FoodUsageLogData, value: string | number) => {
-    const updated = [...manualEntries];
-    updated[index] = { ...updated[index], [field]: value };
-    setManualEntries(updated);
-  };
+  // Group by date for timeline
+  const last7Days = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - i));
+    return date.toISOString().split('T')[0];
+  });
 
-  const handleSubmitManualEntries = async () => {
-    setError("");
-    setSuccess("");
-    setLoading(true);
+  const dailyUsage = last7Days.map(date => ({
+    date,
+    count: recentUsage.filter(log => log.usageDate === date).length
+  }));
 
-    try {
-      const validEntries = manualEntries.filter(
-        (entry) => entry.itemName && entry.category && entry.quantity > 0
-      );
+  const maxDailyCount = Math.max(...dailyUsage.map(d => d.count), 1);
 
-      if (validEntries.length === 0) {
-        setError("Please fill in at least one valid entry");
-        setLoading(false);
-        return;
-      }
-
-      const entriesWithDate = validEntries.map((entry) => ({
-        ...entry,
-        usageDate,
-      }));
-
-      await bulkCreateFoodUsageLogs(entriesWithDate);
-      setSuccess(`Successfully logged ${validEntries.length} food usage entries!`);
-      setManualEntries([{ itemName: "", quantity: 1, category: "" }]);
-      await loadFoodUsageLogs();
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to log food usage");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleInventoryItemSelect = async () => {
-    if (!selectedInventoryItem) {
-      setError("Please select an item from inventory");
-      return;
-    }
-
-    setError("");
-    setSuccess("");
-    setLoading(true);
-
-    try {
-      const item = inventoryItems.find((i) => i.id === Number(selectedInventoryItem));
-      if (!item) {
-        throw new Error("Selected item not found");
-      }
-
-      await createFoodUsageLog({
-        itemName: item.item_name,
-        quantity: selectedQuantity,
-        category: item.category,
-        usageDate,
-      });
-
-      setSuccess("Food usage logged successfully!");
-      setSelectedInventoryItem("");
-      setSelectedQuantity(1);
-      await loadFoodUsageLogs();
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to log food usage");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCsvUpload = async () => {
-    if (!csvFile) {
-      setError("Please select a CSV file");
-      return;
-    }
-
-    setError("");
-    setSuccess("");
-    setCsvLoading(true);
-
-    try {
-      const text = await csvFile.text();
-      const lines = text.split("\n").filter((line) => line.trim());
-      const headers = lines[0].toLowerCase().split(",").map((h) => h.trim());
-
-      const itemNameIndex = headers.findIndex(
-        (h) => h.includes("item") || h.includes("name")
-      );
-      const quantityIndex = headers.findIndex(
-        (h) => h.includes("quantity") || h.includes("qty") || h.includes("amount")
-      );
-      const categoryIndex = headers.findIndex((h) => h.includes("category"));
-
-      if (itemNameIndex === -1 || quantityIndex === -1 || categoryIndex === -1) {
-        throw new Error(
-          "CSV must have columns: item name, quantity, and category"
-        );
-      }
-
-      const entries: FoodUsageLogData[] = [];
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(",").map((v) => v.trim());
-        if (values[itemNameIndex] && values[quantityIndex] && values[categoryIndex]) {
-          entries.push({
-            itemName: values[itemNameIndex],
-            quantity: parseFloat(values[quantityIndex]) || 1,
-            category: values[categoryIndex],
-            usageDate,
-          });
-        }
-      }
-
-      if (entries.length === 0) {
-        throw new Error("No valid entries found in CSV");
-      }
-
-      await bulkCreateFoodUsageLogs(entries);
-      setSuccess(`Successfully uploaded ${entries.length} entries from CSV!`);
-      setCsvFile(null);
-      await loadFoodUsageLogs();
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to process CSV file");
-    } finally {
-      setCsvLoading(false);
-    }
-  };
-
-  // User inventory handlers
-  const handleAddManualInventoryEntry = () => {
-    setManualInventoryEntries([
-      ...manualInventoryEntries,
-      { itemName: "", quantity: 1, category: "", purchaseDate: "", expirationDate: "", notes: "" },
-    ]);
-  };
-
-  const handleRemoveManualInventoryEntry = (index: number) => {
-    setManualInventoryEntries(manualInventoryEntries.filter((_, i) => i !== index));
-  };
-
-  const handleManualInventoryEntryChange = (
-    index: number,
-    field: keyof UserInventoryItemData,
-    value: string | number
-  ) => {
-    const updated = [...manualInventoryEntries];
-    updated[index] = { ...updated[index], [field]: value };
-    setManualInventoryEntries(updated);
-  };
-
-  const handleSubmitManualInventoryEntries = async () => {
-    setError("");
-    setSuccess("");
-    setLoading(true);
-
-    try {
-      const validEntries = manualInventoryEntries.filter(
-        (entry) => entry.itemName && entry.category && entry.quantity > 0
-      );
-
-      if (validEntries.length === 0) {
-        setError("Please fill in at least one valid entry");
-        setLoading(false);
-        return;
-      }
-
-      await bulkCreateUserInventoryItems(validEntries);
-      setSuccess(`Successfully added ${validEntries.length} items to inventory!`);
-      setManualInventoryEntries([
-        { itemName: "", quantity: 1, category: "", purchaseDate: "", expirationDate: "", notes: "" },
-      ]);
-      await loadUserInventory();
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add items to inventory");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleInventoryItemSelectForInventory = async () => {
-    if (!selectedInventoryItemId) {
-      setError("Please select an item from inventory");
-      return;
-    }
-
-    setError("");
-    setSuccess("");
-    setLoading(true);
-
-    try {
-      const item = inventoryItems.find((i) => i.id === Number(selectedInventoryItemId));
-      if (!item) {
-        throw new Error("Selected item not found");
-      }
-
-      // Calculate expiration date from purchase date + expiration_days
-      let calculatedExpirationDate = selectedExpirationDate || undefined;
-      if (selectedPurchaseDate && item.expiration_days) {
-        const purchaseDate = new Date(selectedPurchaseDate);
-        purchaseDate.setDate(purchaseDate.getDate() + item.expiration_days);
-        calculatedExpirationDate = purchaseDate.toISOString().split('T')[0];
-      }
-
-      await createUserInventoryItem({
-        itemName: item.item_name,
-        quantity: selectedInventoryQuantity,
-        category: item.category,
-        purchaseDate: selectedPurchaseDate || undefined,
-        expirationDate: calculatedExpirationDate,
-      });
-
-      setSuccess("Item added to inventory successfully!");
-      setSelectedInventoryItemId("");
-      setSelectedInventoryQuantity(1);
-      setSelectedPurchaseDate("");
-      setSelectedExpirationDate("");
-      await loadUserInventory();
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add item to inventory");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleInventoryCsvUpload = async () => {
-    if (!inventoryCsvFile) {
-      setError("Please select a CSV file");
-      return;
-    }
-
-    setError("");
-    setSuccess("");
-    setInventoryCsvLoading(true);
-
-    try {
-      const text = await inventoryCsvFile.text();
-      const lines = text.split("\n").filter((line) => line.trim());
-      const headers = lines[0].toLowerCase().split(",").map((h) => h.trim());
-
-      const itemNameIndex = headers.findIndex((h) => h.includes("item") || h.includes("name"));
-      const quantityIndex = headers.findIndex(
-        (h) => h.includes("quantity") || h.includes("qty") || h.includes("amount")
-      );
-      const categoryIndex = headers.findIndex((h) => h.includes("category"));
-      const purchaseDateIndex = headers.findIndex((h) => h.includes("purchase"));
-      const expirationDateIndex = headers.findIndex((h) => h.includes("expiration") || h.includes("expiry"));
-
-      if (itemNameIndex === -1 || quantityIndex === -1 || categoryIndex === -1) {
-        throw new Error("CSV must have columns: item name, quantity, and category");
-      }
-
-      const entries: UserInventoryItemData[] = [];
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(",").map((v) => v.trim());
-        if (values[itemNameIndex] && values[quantityIndex] && values[categoryIndex]) {
-          entries.push({
-            itemName: values[itemNameIndex],
-            quantity: parseFloat(values[quantityIndex]) || 1,
-            category: values[categoryIndex],
-            purchaseDate: purchaseDateIndex !== -1 ? values[purchaseDateIndex] : undefined,
-            expirationDate: expirationDateIndex !== -1 ? values[expirationDateIndex] : undefined,
-          });
-        }
-      }
-
-      if (entries.length === 0) {
-        throw new Error("No valid entries found in CSV");
-      }
-
-      await bulkCreateUserInventoryItems(entries);
-      setSuccess(`Successfully uploaded ${entries.length} items from CSV!`);
-      setInventoryCsvFile(null);
-      await loadUserInventory();
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to process CSV file");
-    } finally {
-      setInventoryCsvLoading(false);
-    }
-  };
-
-  const handleDeleteInventoryItem = async (id: number) => {
-    if (!confirm("Are you sure you want to remove this item from your inventory?")) {
-      return;
-    }
-
-    setError("");
-    setSuccess("");
-    setLoading(true);
-
-    try {
-      await deleteUserInventoryItem(id);
-      setSuccess("Item removed from inventory successfully!");
-      await loadUserInventory();
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove item");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (authLoading || !user) {
+  if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#BCEBD7] text-slate-900 flex flex-col">
-        <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-10 pt-24">
-          <SiteHeader />
-          <main className="mt-10 flex flex-1 items-center justify-center">
-            <div className="text-center">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-white border-t-emerald-600 mx-auto"></div>
-              <p className="mt-4 text-slate-600">Loading profile...</p>
-            </div>
-          </main>
-          <SiteFooter />
-        </div>
+      <div className="min-h-screen bg-[#BCEBD7] flex items-center justify-center">
+        <div className="text-slate-900 text-xl">Loading...</div>
       </div>
     );
   }
 
+  if (!user) {
+    return null;
+  }
 
   return (
-    <div className="min-h-screen bg-[#BCEBD7] text-slate-900 flex flex-col">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-10 pt-24">
+    <div className="min-h-screen bg-[#BCEBD7] text-slate-900">
+      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-10 pt-24">
         <SiteHeader />
 
         <main className="mt-10 flex flex-1 flex-col gap-8">
-          <div className="rounded-3xl border border-white/60 bg-white/90 p-8 shadow-lg">
-            <div className="flex items-center justify-between mb-8">
-              <h1 className="text-3xl font-bold text-slate-900">My Profile</h1>
-              <button
-                onClick={logout}
-                className="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
-              >
-                Logout
-              </button>
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold text-slate-900 mb-2">My Profile</h1>
+              <p className="text-slate-600">Manage your account settings and preferences</p>
             </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 rounded-xl bg-red-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-200 transition hover:bg-red-700"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              Logout
+            </button>
+          </div>
 
-            <div className="grid gap-8 md:grid-cols-[200px,1fr]">
-              {/* Avatar Section */}
-              <div className="flex flex-col items-center">
-                {user.avatarUrl ? (
-                  <img
-                    src={user.avatarUrl}
-                    alt={user.name}
-                    className="h-32 w-32 rounded-full border-4 border-emerald-200 object-cover shadow-lg"
-                  />
-                ) : (
-                  <div className="flex h-32 w-32 items-center justify-center rounded-full border-4 border-emerald-200 bg-emerald-500 text-4xl font-bold text-white shadow-lg">
-                    {user.name.charAt(0).toUpperCase()}
+          {error && (
+            <div className="rounded-2xl bg-red-100 border border-red-300 p-4 flex items-center gap-3">
+              <svg className="w-5 h-5 text-red-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p className="text-red-800">{error}</p>
+            </div>
+          )}
+
+          {success && (
+            <div className="rounded-2xl bg-green-100 border border-green-300 p-4 flex items-center gap-3">
+              <svg className="w-5 h-5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p className="text-green-800">{success}</p>
+            </div>
+          )}
+
+          {/* Tabs */}
+          <div className="flex gap-2 border-b border-slate-200">
+            <button
+              onClick={() => setActiveTab("overview")}
+              className={`px-6 py-3 font-semibold transition-all ${activeTab === "overview"
+                ? "border-b-2 border-emerald-600 text-emerald-600"
+                : "text-slate-600 hover:text-slate-900"
+                }`}
+            >
+              Overview
+            </button>
+            <button
+              onClick={() => setActiveTab("usage")}
+              className={`px-6 py-3 font-semibold transition-all ${activeTab === "usage"
+                ? "border-b-2 border-emerald-600 text-emerald-600"
+                : "text-slate-600 hover:text-slate-900"
+                }`}
+            >
+              Recent Usage
+            </button>
+            <button
+              onClick={() => setActiveTab("settings")}
+              className={`px-6 py-3 font-semibold transition-all ${activeTab === "settings"
+                ? "border-b-2 border-emerald-600 text-emerald-600"
+                : "text-slate-600 hover:text-slate-900"
+                }`}
+            >
+              Settings
+            </button>
+          </div>
+
+          {/* Overview Tab */}
+          {activeTab === "overview" && (
+            <div className="space-y-6">
+              {/* Profile Card */}
+              <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+                <div className="flex items-start justify-between mb-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-white text-3xl font-bold">
+                      {user.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-900">{user.name}</h2>
+                      <p className="text-slate-600">{user.email}</p>
+                      {location && (
+                        <p className="text-sm text-slate-500 mt-1 flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          {location}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                )}
-                <h2 className="mt-4 text-xl font-semibold text-slate-900">
-                  {user.name}
-                </h2>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="rounded-xl bg-emerald-50 p-4">
+                    <p className="text-sm font-medium text-emerald-700 mb-1">Budget Preference</p>
+                    <p className="text-lg font-bold text-emerald-900 capitalize">{budgetPreference || "Not set"}</p>
+                  </div>
+                  <div className="rounded-xl bg-blue-50 p-4">
+                    <p className="text-sm font-medium text-blue-700 mb-1">Dietary Needs</p>
+                    <p className="text-lg font-bold text-blue-900">{dietaryNeeds || "None specified"}</p>
+                  </div>
+                  <div className="rounded-xl bg-purple-50 p-4">
+                    <p className="text-sm font-medium text-purple-700 mb-1">Member Since</p>
+                    <p className="text-lg font-bold text-purple-900">
+                      {new Date(user.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              {/* Profile Details */}
-              <div className="space-y-6">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-                      Account Information
-                    </h3>
-                    {!isEditing && (
-                      <button
-                        onClick={() => setIsEditing(true)}
-                        className="rounded-lg border border-emerald-300 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                      >
-                        Edit Profile
-                      </button>
-                    )}
-                  </div>
-                  <div className="space-y-4">
+              {/* Statistics */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-emerald-50 to-emerald-100 p-6 shadow-lg">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <label className="block text-sm font-medium text-slate-600 mb-1">
-                        Full Name
-                      </label>
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={name}
-                          onChange={(e) => setName(e.target.value)}
-                          className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-lg font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                        />
-                      ) : (
-                        <p className="text-lg font-semibold text-slate-900">
-                          {user.name}
-                        </p>
-                      )}
+                      <p className="text-sm font-medium text-emerald-700">Items Used (7 days)</p>
+                      <p className="text-3xl font-bold text-emerald-900 mt-1">{totalItemsUsed}</p>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-600 mb-1">
-                        Email Address
-                      </label>
-                      <p className="text-lg text-slate-900">{user.email}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-600 mb-1">
-                        User ID
-                      </label>
-                      <p className="text-sm font-mono text-slate-600">
-                        #{user.id}
-                      </p>
+                    <div className="p-3 bg-emerald-200 rounded-xl">
+                      <svg className="w-8 h-8 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                      </svg>
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-6">
-                  <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-emerald-700">
-                    Preferences
-                  </h3>
-                  <div className="space-y-4">
+                <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-blue-50 to-blue-100 p-6 shadow-lg">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Budget Preferences
-                      </label>
-                      {isEditing ? (
-                        <select
-                          value={budgetPreferences}
-                          onChange={(e) =>
-                            setBudgetPreferences(
-                              e.target.value as "low" | "medium" | "high" | ""
-                            )
-                          }
-                          className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                      <p className="text-sm font-medium text-blue-700">Total Quantity</p>
+                      <p className="text-3xl font-bold text-blue-900 mt-1">{totalQuantity.toFixed(1)}</p>
+                    </div>
+                    <div className="p-3 bg-blue-200 rounded-xl">
+                      <svg className="w-8 h-8 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-orange-50 to-orange-100 p-6 shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-orange-700">Categories</p>
+                      <p className="text-3xl font-bold text-orange-900 mt-1">{categories.length}</p>
+                    </div>
+                    <div className="p-3 bg-orange-200 rounded-xl">
+                      <svg className="w-8 h-8 text-orange-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Usage Timeline Chart */}
+              <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+                <h3 className="text-xl font-bold text-slate-900 mb-6">7-Day Usage Timeline</h3>
+                <div className="space-y-3">
+                  {dailyUsage.map((day, index) => (
+                    <div key={day.date} className="flex items-center gap-4">
+                      <div className="w-24 text-sm font-medium text-slate-600">
+                        {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </div>
+                      <div className="flex-1 bg-slate-100 rounded-full h-8 overflow-hidden">
+                        <div
+                          className="bg-gradient-to-r from-emerald-500 to-emerald-600 h-full rounded-full flex items-center justify-end px-3 transition-all"
+                          style={{ width: `${(day.count / maxDailyCount) * 100}%` }}
                         >
-                          <option value="">Select budget preference</option>
-                          <option value="low">Low</option>
-                          <option value="medium">Medium</option>
-                          <option value="high">High</option>
-                        </select>
-                      ) : (
-                        <p className="text-lg text-slate-900 capitalize">
-                          {user.budgetPreferences || "Not set"}
-                        </p>
-                      )}
+                          {day.count > 0 && (
+                            <span className="text-xs font-bold text-white">{day.count}</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Recent Usage Tab */}
+          {activeTab === "usage" && (
+            <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+              <h3 className="text-xl font-bold text-slate-900 mb-6">Recent Food Usage (Last 7 Days)</h3>
+
+              {usageLoading ? (
+                <div className="text-center py-12">
+                  <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mb-4"></div>
+                  <p className="text-slate-600">Loading usage data...</p>
+                </div>
+              ) : recentUsage.length === 0 ? (
+                <div className="text-center py-12">
+                  <svg className="w-16 h-16 mx-auto text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">No usage data</h3>
+                  <p className="text-slate-500">Start tracking your food usage in the Daily Tracker</p>
+                </div>
+              ) : (
+                <>
+                  {/* Category Breakdown */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Dietary Needs
-                      </label>
-                      {isEditing ? (
-                        <textarea
-                          value={dietaryNeeds}
-                          onChange={(e) => setDietaryNeeds(e.target.value)}
-                          placeholder="e.g., Vegetarian, Gluten-free, Allergies, etc."
-                          rows={4}
-                          maxLength={500}
-                          className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 resize-none"
-                        />
-                      ) : (
-                        <p className="text-lg text-slate-900 whitespace-pre-wrap">
-                          {user.dietaryNeeds || "Not set"}
-                        </p>
-                      )}
-                      {isEditing && (
-                        <p className="mt-1 text-xs text-slate-500">
-                          {dietaryNeeds.length}/500 characters
-                        </p>
-                      )}
+                      <h4 className="text-lg font-semibold text-slate-900 mb-4">By Category</h4>
+                      <div className="space-y-3">
+                        {categoryData.map((cat, index) => (
+                          <div key={cat.category} className="flex items-center gap-3">
+                            <div className="w-32 text-sm font-medium text-slate-700 capitalize">{cat.category}</div>
+                            <div className="flex-1 bg-slate-100 rounded-full h-6 overflow-hidden">
+                              <div
+                                className="bg-gradient-to-r from-blue-500 to-blue-600 h-full rounded-full flex items-center justify-end px-2"
+                                style={{ width: `${(cat.count / totalItemsUsed) * 100}%` }}
+                              >
+                                <span className="text-xs font-bold text-white">{cat.count}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-lg font-semibold text-slate-900 mb-4">Recent Items</h4>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {recentUsage.slice(0, 10).map((log, index) => (
+                          <div key={log.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                            <div>
+                              <p className="font-medium text-slate-900">{log.itemName}</p>
+                              <p className="text-xs text-slate-500 capitalize">{log.category}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-bold text-emerald-600">{log.quantity}</p>
+                              <p className="text-xs text-slate-400">
+                                {new Date(log.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
+                </>
+              )}
+            </div>
+          )}
 
-                {isEditing && (
-                  <div className="flex gap-3">
+          {/* Settings Tab */}
+          {activeTab === "settings" && (
+            <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-slate-900">Account Settings</h3>
+                {!isEditing ? (
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    Edit Profile
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
                     <button
-                      onClick={handleSave}
-                      disabled={loading}
-                      className="flex-1 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {loading ? "Saving..." : "Save Changes"}
-                    </button>
-                    <button
-                      onClick={handleCancel}
-                      disabled={loading}
-                      className="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => {
+                        setIsEditing(false);
+                        setName(user.name);
+                        setBudgetPreference(user.budgetPreferences || "");
+                        setLocation(user.location || "");
+                        setDietaryNeeds(user.dietaryNeeds || "");
+                      }}
+                      className="rounded-xl border-2 border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                     >
                       Cancel
                     </button>
-                  </div>
-                )}
-
-                {error && (
-                  <div className="rounded-lg bg-red-50 border border-red-200 p-4">
-                    <p className="text-sm text-red-800">{error}</p>
-                  </div>
-                )}
-
-                {success && (
-                  <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4">
-                    <p className="text-sm text-emerald-800">{success}</p>
+                    <button
+                      onClick={handleSaveProfile}
+                      disabled={loading}
+                      className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {loading ? "Saving..." : "Save Changes"}
+                    </button>
                   </div>
                 )}
               </div>
-            </div>
-          </div>
 
-          {/* Food Usage Logging Section */}
-          <div className="rounded-3xl border border-white/60 bg-white/90 p-8 shadow-lg">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">Daily Food Usage</h2>
-                <p className="text-sm text-slate-600 mt-1">Log your daily food consumption</p>
-              </div>
-              <button
-                onClick={() => setShowFoodUsage(!showFoodUsage)}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-              >
-                {showFoodUsage ? "Hide" : "Log Food Usage"}
-              </button>
-            </div>
-
-            {showFoodUsage && (
               <div className="space-y-6">
-                {/* Date Selection */}
+                {/* Name */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Usage Date
-                  </label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Full Name</label>
                   <input
-                    type="date"
-                    value={usageDate}
-                    onChange={(e) => setUsageDate(e.target.value)}
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    disabled={!isEditing}
+                    className="w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 font-medium focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:opacity-60"
                   />
                 </div>
 
-                {/* Method Selection */}
+                {/* Email (read-only) */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Input Method
-                  </label>
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setFoodUsageMethod("manual")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${foodUsageMethod === "manual"
-                        ? "bg-emerald-600 text-white"
-                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                    >
-                      Manual Entry
-                    </button>
-                    <button
-                      onClick={() => setFoodUsageMethod("dropdown")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${foodUsageMethod === "dropdown"
-                        ? "bg-emerald-600 text-white"
-                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                    >
-                      From Inventory
-                    </button>
-                    <button
-                      onClick={() => setFoodUsageMethod("csv")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${foodUsageMethod === "csv"
-                        ? "bg-emerald-600 text-white"
-                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                    >
-                      CSV Upload
-                    </button>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Email Address</label>
+                  <input
+                    type="email"
+                    value={user.email}
+                    disabled
+                    className="w-full rounded-xl border-2 border-slate-200 bg-slate-100 px-4 py-3 text-slate-600 font-medium opacity-60"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Email cannot be changed</p>
+                </div>
+
+                {/* Location */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Location</label>
+                  <input
+                    type="text"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    disabled={!isEditing}
+                    placeholder="e.g., Dhaka, Bangladesh"
+                    className="w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 font-medium focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:opacity-60"
+                  />
+                </div>
+
+                {/* Budget Preference */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Budget Preference</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {(["low", "medium", "high"] as const).map((level) => (
+                      <button
+                        key={level}
+                        onClick={() => isEditing && setBudgetPreference(level)}
+                        disabled={!isEditing}
+                        className={`py-3 px-4 rounded-xl font-semibold transition-all border-2 ${budgetPreference === level
+                          ? "bg-emerald-600 border-emerald-600 text-white"
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300"
+                          } ${!isEditing ? "opacity-60 cursor-not-allowed" : ""}`}
+                      >
+                        {level.charAt(0).toUpperCase() + level.slice(1)}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                {/* Manual Entry Form */}
-                {foodUsageMethod === "manual" && (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-slate-900">Manual Entry</h3>
-                      <button
-                        onClick={handleAddManualEntry}
-                        className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
-                      >
-                        + Add Entry
-                      </button>
-                    </div>
-                    <div className="space-y-4">
-                      {manualEntries.map((entry, index) => (
-                        <div
-                          key={index}
-                          className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-[2fr,1fr,2fr,auto]"
-                        >
-                          <input
-                            type="text"
-                            placeholder="Item name"
-                            value={entry.itemName}
-                            onChange={(e) =>
-                              handleManualEntryChange(index, "itemName", e.target.value)
-                            }
-                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                          />
-                          <input
-                            type="number"
-                            placeholder="Quantity"
-                            min="0.01"
-                            step="0.01"
-                            value={entry.quantity}
-                            onChange={(e) =>
-                              handleManualEntryChange(
-                                index,
-                                "quantity",
-                                parseFloat(e.target.value) || 0
-                              )
-                            }
-                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Category"
-                            value={entry.category}
-                            onChange={(e) =>
-                              handleManualEntryChange(index, "category", e.target.value)
-                            }
-                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                          />
-                          {manualEntries.length > 1 && (
-                            <button
-                              onClick={() => handleRemoveManualEntry(index)}
-                              className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-red-700 transition hover:bg-red-100"
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                      <button
-                        onClick={handleSubmitManualEntries}
-                        disabled={loading}
-                        className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {loading ? "Saving..." : "Save Entries"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Dropdown Selection */}
-                {foodUsageMethod === "dropdown" && (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-6">
-                    <h3 className="mb-4 text-lg font-semibold text-slate-900">
-                      Select from Inventory
-                    </h3>
-                    <div className="grid gap-4 md:grid-cols-[2fr,1fr,auto]">
-                      <select
-                        value={selectedInventoryItem}
-                        onChange={(e) => setSelectedInventoryItem(Number(e.target.value) || "")}
-                        className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                      >
-                        <option value="">Select an item...</option>
-                        {inventoryItems.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.item_name} ({item.category})
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        placeholder="Quantity"
-                        min="0.01"
-                        step="0.01"
-                        value={selectedQuantity}
-                        onChange={(e) => setSelectedQuantity(parseFloat(e.target.value) || 1)}
-                        className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                      />
-                      <button
-                        onClick={handleInventoryItemSelect}
-                        disabled={loading || !selectedInventoryItem}
-                        className="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {loading ? "Adding..." : "Add"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* CSV Upload */}
-                {foodUsageMethod === "csv" && (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-6">
-                    <h3 className="mb-4 text-lg font-semibold text-slate-900">CSV Upload</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          Select CSV File
-                        </label>
-                        <input
-                          type="file"
-                          accept=".csv"
-                          onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-                          className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                        />
-                        <p className="mt-2 text-xs text-slate-500">
-                          CSV format: item_name, quantity, category (header row required)
-                        </p>
-                      </div>
-                      <button
-                        onClick={handleCsvUpload}
-                        disabled={csvLoading || !csvFile}
-                        className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {csvLoading ? "Uploading..." : "Upload CSV"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Today's Logs */}
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6">
-                  <h3 className="mb-4 text-lg font-semibold text-slate-900">
-                    Logs for {new Date(usageDate).toLocaleDateString()}
-                  </h3>
-                  {foodUsageLogs.length === 0 ? (
-                    <p className="text-slate-600">No logs for this date</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead className="bg-slate-100">
-                          <tr>
-                            <th className="px-4 py-2 text-left text-sm font-semibold text-slate-700">
-                              Item
-                            </th>
-                            <th className="px-4 py-2 text-left text-sm font-semibold text-slate-700">
-                              Quantity
-                            </th>
-                            <th className="px-4 py-2 text-left text-sm font-semibold text-slate-700">
-                              Category
-                            </th>
-                            <th className="px-4 py-2 text-left text-sm font-semibold text-slate-700">
-                              Time
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200">
-                          {foodUsageLogs.map((log) => (
-                            <tr key={log.id} className="hover:bg-slate-50">
-                              <td className="px-4 py-2 text-sm text-slate-900">{log.itemName}</td>
-                              <td className="px-4 py-2 text-sm text-slate-900">{log.quantity}</td>
-                              <td className="px-4 py-2 text-sm text-slate-900">{log.category}</td>
-                              <td className="px-4 py-2 text-sm text-slate-600">
-                                {new Date(log.createdAt).toLocaleTimeString()}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                {/* Dietary Needs */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Dietary Needs</label>
+                  <textarea
+                    value={dietaryNeeds}
+                    onChange={(e) => setDietaryNeeds(e.target.value)}
+                    disabled={!isEditing}
+                    placeholder="e.g., Vegetarian, Gluten-free, etc."
+                    rows={3}
+                    className="w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 font-medium focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:opacity-60 resize-none"
+                  />
                 </div>
               </div>
-            )}
-          </div>
-
-          {/* User Inventory Management Section */}
-          <div className="rounded-3xl border border-white/60 bg-white/90 p-8 shadow-lg">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">My Inventory</h2>
-                <p className="text-sm text-slate-600 mt-1">Manage your personal food inventory</p>
-              </div>
-              <button
-                onClick={() => setShowUserInventory(!showUserInventory)}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-              >
-                {showUserInventory ? "Hide" : "Manage Inventory"}
-              </button>
             </div>
-
-            {showUserInventory && (
-              <div className="space-y-6">
-                {/* Method Selection */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Input Method
-                  </label>
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setUserInventoryMethod("manual")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${userInventoryMethod === "manual"
-                        ? "bg-emerald-600 text-white"
-                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                    >
-                      Manual Entry
-                    </button>
-                    <button
-                      onClick={() => setUserInventoryMethod("dropdown")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${userInventoryMethod === "dropdown"
-                        ? "bg-emerald-600 text-white"
-                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                    >
-                      From Inventory
-                    </button>
-                    <button
-                      onClick={() => setUserInventoryMethod("csv")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${userInventoryMethod === "csv"
-                        ? "bg-emerald-600 text-white"
-                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                    >
-                      CSV Upload
-                    </button>
-                  </div>
-                </div>
-
-                {/* Manual Entry Form */}
-                {userInventoryMethod === "manual" && (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-slate-900">Manual Entry</h3>
-                      <button
-                        onClick={handleAddManualInventoryEntry}
-                        className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
-                      >
-                        + Add Entry
-                      </button>
-                    </div>
-                    <div className="space-y-4">
-                      {manualInventoryEntries.map((entry, index) => (
-                        <div
-                          key={index}
-                          className="space-y-2 rounded-lg border border-slate-200 bg-white p-4"
-                        >
-                          <div className="grid gap-4 md:grid-cols-[2fr,1fr,2fr,auto]">
-                            <div>
-                              <label className="block text-xs font-medium text-slate-600 mb-1">
-                                Item Name
-                              </label>
-                              <input
-                                type="text"
-                                placeholder="Item name"
-                                value={entry.itemName}
-                                onChange={(e) =>
-                                  handleManualInventoryEntryChange(index, "itemName", e.target.value)
-                                }
-                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-slate-600 mb-1">
-                                Quantity
-                              </label>
-                              <input
-                                type="number"
-                                placeholder="Quantity"
-                                min="0.01"
-                                step="0.01"
-                                value={entry.quantity}
-                                onChange={(e) =>
-                                  handleManualInventoryEntryChange(
-                                    index,
-                                    "quantity",
-                                    parseFloat(e.target.value) || 0
-                                  )
-                                }
-                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-slate-600 mb-1">
-                                Category
-                              </label>
-                              <input
-                                type="text"
-                                placeholder="Category"
-                                value={entry.category}
-                                onChange={(e) =>
-                                  handleManualInventoryEntryChange(index, "category", e.target.value)
-                                }
-                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                              />
-                            </div>
-                            {manualInventoryEntries.length > 1 && (
-                              <div className="flex items-end">
-                                <button
-                                  onClick={() => handleRemoveManualInventoryEntry(index)}
-                                  className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 transition hover:bg-red-100"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <div>
-                              <label className="block text-xs font-medium text-slate-600 mb-1">
-                                Purchase Date (when you bought it)
-                              </label>
-                              <input
-                                type="date"
-                                value={entry.purchaseDate || ""}
-                                onChange={(e) =>
-                                  handleManualInventoryEntryChange(index, "purchaseDate", e.target.value)
-                                }
-                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-slate-600 mb-1">
-                                Expiration Date (when it expires)
-                              </label>
-                              <input
-                                type="date"
-                                value={entry.expirationDate || ""}
-                                onChange={(e) =>
-                                  handleManualInventoryEntryChange(index, "expirationDate", e.target.value)
-                                }
-                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      <button
-                        onClick={handleSubmitManualInventoryEntries}
-                        disabled={loading}
-                        className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {loading ? "Saving..." : "Save Entries"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Dropdown Selection */}
-                {userInventoryMethod === "dropdown" && (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-6">
-                    <h3 className="mb-4 text-lg font-semibold text-slate-900">
-                      Select from General Inventory
-                    </h3>
-                    <div className="space-y-4">
-                      <div className="grid gap-4 md:grid-cols-[2fr,1fr,auto]">
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">
-                            Select Item
-                          </label>
-                          <select
-                            value={selectedInventoryItemId}
-                            onChange={(e) => setSelectedInventoryItemId(Number(e.target.value) || "")}
-                            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                          >
-                            <option value="">Select an item...</option>
-                            {inventoryItems.map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.item_name} ({item.category})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">
-                            Quantity
-                          </label>
-                          <input
-                            type="number"
-                            placeholder="Quantity"
-                            min="0.01"
-                            step="0.01"
-                            value={selectedInventoryQuantity}
-                            onChange={(e) => setSelectedInventoryQuantity(parseFloat(e.target.value) || 1)}
-                            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                          />
-                        </div>
-                        <div className="flex items-end">
-                          <button
-                            onClick={handleInventoryItemSelectForInventory}
-                            disabled={loading || !selectedInventoryItemId}
-                            className="w-full rounded-lg bg-emerald-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {loading ? "Adding..." : "Add"}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">
-                            Purchase Date (when you bought it)
-                          </label>
-                          <input
-                            type="date"
-                            value={selectedPurchaseDate}
-                            onChange={(e) => {
-                              setSelectedPurchaseDate(e.target.value);
-                              // Auto-calculate expiration date when purchase date changes
-                              if (e.target.value && selectedInventoryItemId) {
-                                const item = inventoryItems.find((i) => i.id === Number(selectedInventoryItemId));
-                                if (item && item.expiration_days) {
-                                  const purchaseDate = new Date(e.target.value);
-                                  purchaseDate.setDate(purchaseDate.getDate() + item.expiration_days);
-                                  setSelectedExpirationDate(purchaseDate.toISOString().split('T')[0]);
-                                }
-                              }
-                            }}
-                            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">
-                            Expiration Date (auto-calculated from general inventory)
-                          </label>
-                          <input
-                            type="date"
-                            value={selectedExpirationDate}
-                            onChange={(e) => setSelectedExpirationDate(e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                            readOnly={!!(selectedPurchaseDate && selectedInventoryItemId)}
-                            style={selectedPurchaseDate && selectedInventoryItemId ? { backgroundColor: '#f3f4f6', cursor: 'not-allowed' } : {}}
-                          />
-                          {selectedPurchaseDate && selectedInventoryItemId && (
-                            <p className="mt-1 text-xs text-slate-500">
-                              Auto-calculated from purchase date + expiration days
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* CSV Upload */}
-                {userInventoryMethod === "csv" && (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-6">
-                    <h3 className="mb-4 text-lg font-semibold text-slate-900">CSV Upload</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          Select CSV File
-                        </label>
-                        <input
-                          type="file"
-                          accept=".csv"
-                          onChange={(e) => setInventoryCsvFile(e.target.files?.[0] || null)}
-                          className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                        />
-                        <p className="mt-2 text-xs text-slate-500">
-                          CSV format: item_name, quantity, category, purchase_date (optional - when you bought it), expiration_date (optional - when it expires)
-                        </p>
-                      </div>
-                      <button
-                        onClick={handleInventoryCsvUpload}
-                        disabled={inventoryCsvLoading || !inventoryCsvFile}
-                        className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {inventoryCsvLoading ? "Uploading..." : "Upload CSV"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Current Inventory List */}
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-slate-900">Current Inventory</h3>
-                    <button
-                      onClick={loadUserInventory}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      Refresh
-                    </button>
-                  </div>
-                  {userInventoryItems.length === 0 ? (
-                    <p className="text-slate-600">No items in your inventory</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead className="bg-slate-100">
-                          <tr>
-                            <th className="px-4 py-2 text-left text-sm font-semibold text-slate-700">
-                              Item
-                            </th>
-                            <th className="px-4 py-2 text-left text-sm font-semibold text-slate-700">
-                              Quantity
-                            </th>
-                            <th className="px-4 py-2 text-left text-sm font-semibold text-slate-700">
-                              Category
-                            </th>
-                            <th className="px-4 py-2 text-left text-sm font-semibold text-slate-700">
-                              Purchase Date
-                            </th>
-                            <th className="px-4 py-2 text-left text-sm font-semibold text-slate-700">
-                              Expiration Date
-                            </th>
-                            <th className="px-4 py-2 text-left text-sm font-semibold text-slate-700">
-                              Actions
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200">
-                          {userInventoryItems.map((item) => {
-                            const isExpired = item.expirationDate
-                              ? new Date(item.expirationDate) < new Date()
-                              : false;
-                            const isExpiringSoon = item.expirationDate
-                              ? new Date(item.expirationDate) <= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) &&
-                              new Date(item.expirationDate) >= new Date()
-                              : false;
-
-                            return (
-                              <tr
-                                key={item.id}
-                                className={`hover:bg-slate-50 ${isExpired ? "bg-red-50" : isExpiringSoon ? "bg-yellow-50" : ""
-                                  }`}
-                              >
-                                <td className="px-4 py-2 text-sm font-medium text-slate-900">
-                                  {item.itemName}
-                                </td>
-                                <td className="px-4 py-2 text-sm text-slate-900">{item.quantity}</td>
-                                <td className="px-4 py-2 text-sm text-slate-900">{item.category}</td>
-                                <td className="px-4 py-2 text-sm text-slate-600">
-                                  {item.purchaseDate
-                                    ? new Date(item.purchaseDate).toLocaleDateString()
-                                    : "-"}
-                                </td>
-                                <td className="px-4 py-2 text-sm text-slate-600">
-                                  {item.expirationDate
-                                    ? new Date(item.expirationDate).toLocaleDateString()
-                                    : "-"}
-                                  {isExpired && (
-                                    <span className="ml-2 text-xs text-red-600">(Expired)</span>
-                                  )}
-                                  {isExpiringSoon && !isExpired && (
-                                    <span className="ml-2 text-xs text-yellow-600">(Expiring Soon)</span>
-                                  )}
-                                </td>
-                                <td className="px-4 py-2">
-                                  <button
-                                    onClick={() => handleDeleteInventoryItem(item.id)}
-                                    className="rounded-lg border border-red-300 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700 transition hover:bg-red-100"
-                                  >
-                                    Remove
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          )}
         </main>
 
         <SiteFooter />
@@ -1347,4 +501,3 @@ export default function ProfilePage() {
     </div>
   );
 }
-

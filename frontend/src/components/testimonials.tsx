@@ -1,24 +1,24 @@
 const testimonials = [
     {
-        name: "Priya Sharma",
+        name: "Sumaiya Akhter",
         role: "Working Mother",
         image: "👩‍💼",
         quote: "KhaddoKotha helped our family reduce food waste by 40% in just 2 months. The inventory tracking is a game-changer!",
-        savings: "₹3,500/month saved"
+        savings: "$3,500/month saved"
     },
     {
-        name: "Rajesh Kumar",
+        name: "Rahat Das Anabil",
         role: "Restaurant Owner",
         image: "👨‍🍳",
         quote: "The expiration tracking feature alone has saved my restaurant thousands. This platform is essential for any food business.",
         savings: "30% waste reduction"
     },
     {
-        name: "Ananya Das",
+        name: "Rafsan Jani",
         role: "College Student",
         image: "👩‍🎓",
         quote: "As a student on a budget, this app helps me plan meals and never waste groceries. The educational resources are super helpful!",
-        savings: "₹1,200/month saved"
+        savings: "$1,200/month saved"
     }
 ];
 
@@ -63,7 +63,7 @@ export function TestimonialsSection() {
                         <div className="text-sm text-slate-600">Active Users</div>
                     </div>
                     <div className="text-center">
-                        <div className="text-2xl font-bold text-emerald-600">₹10L+</div>
+                        <div className="text-2xl font-bold text-emerald-600">$10L+</div>
                         <div className="text-sm text-slate-600">Money Saved</div>
                     </div>
                     <div className="text-center">

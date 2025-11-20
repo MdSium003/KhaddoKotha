@@ -3,6 +3,7 @@ import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/auth-context";
+import { Chatbot } from "@/components/chatbot";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,6 +18,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "KhaddoKotha",
   description: "AI-powered health monitoring platform",
+  icons: {
+    icon: [
+      { url: "/Tab.png" },
+      { url: "/Tab.png", sizes: "32x32", type: "image/png" },
+      { url: "/Tab.png", sizes: "16x16", type: "image/png" },
+    ],
+    apple: "/Tab.png",
+    shortcut: "/Tab.png",
+  },
 };
 
 export default function RootLayout({
@@ -37,7 +47,10 @@ export default function RootLayout({
             strategy="lazyOnload"
           />
         )}
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          {children}
+          <Chatbot />
+        </AuthProvider>
       </body>
     </html>
   );

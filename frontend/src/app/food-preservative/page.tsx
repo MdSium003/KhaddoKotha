@@ -14,70 +14,35 @@ const preservationDatabase: Record<string, { normalLife: string; preservative: s
     "orange": { normalLife: "2-3 weeks", preservative: "Refrigeration", extendedLife: "1-2 months", chemical: "Diphenyl / Orthophenylphenol" },
     "strawberries": { normalLife: "2-3 days", preservative: "Vinegar Wash & Refrigeration", extendedLife: "1 week", chemical: "Potassium Sorbate" },
     "mango": { normalLife: "5-7 days", preservative: "Refrigeration (Ripe)", extendedLife: "2 weeks", chemical: "Hot Water Treatment" },
-    "pineapple": { normalLife: "3-5 days", preservative: "Refrigeration", extendedLife: "1 week", chemical: "Wax Coating" },
-    "grapes": { normalLife: "1 week", preservative: "Refrigeration", extendedLife: "2-3 weeks", chemical: "Sulfur Dioxide Pads" },
-    "kiwi": { normalLife: "1 week", preservative: "Refrigeration", extendedLife: "2-3 weeks", chemical: "1-MCP (SmartFresh)" },
-    "blueberry": { normalLife: "1 week", preservative: "Refrigeration", extendedLife: "2 weeks", chemical: "Sodium Benzoate" },
-    "avocado": { normalLife: "3-4 days", preservative: "Refrigeration (Ripe)", extendedLife: "1 week", chemical: "Citric Acid (prevents browning)" },
-    "coconut": { normalLife: "1-2 weeks", preservative: "Refrigeration", extendedLife: "1 month", chemical: "Sodium Metabisulfite" },
+    "grape": { normalLife: "1 week", preservative: "Refrigeration", extendedLife: "2-3 weeks", chemical: "Sulfur Dioxide Pads" },
 
     // Vegetables
     "potatoes": { normalLife: "3-5 weeks", preservative: "Cool, Dark Place", extendedLife: "4-6 months", chemical: "Chlorpropham (Sprout Inhibitor)" },
     "onions": { normalLife: "1-2 months", preservative: "Cool, Dry Place", extendedLife: "6-8 months", chemical: "Maleic Hydrazide" },
     "carrot": { normalLife: "2-3 weeks", preservative: "Refrigeration (in water)", extendedLife: "1 month", chemical: "Chlorine Wash" },
     "spinach": { normalLife: "3-5 days", preservative: "Refrigeration", extendedLife: "1 week", chemical: "Ascorbic Acid Wash" },
-    "cucumber": { normalLife: "1 week", preservative: "Refrigeration", extendedLife: "2 weeks", chemical: "Edible Wax Coating" },
-    "lettuce": { normalLife: "1 week", preservative: "Refrigeration", extendedLife: "2 weeks", chemical: "Modified Atmosphere Packaging" },
-    "cabbage": { normalLife: "1-2 weeks", preservative: "Refrigeration", extendedLife: "1-2 months", chemical: "Lactic Acid (Sauerkraut)" },
 
     // Dairy
     "milk": { normalLife: "5-7 days", preservative: "Pasteurization & Refrigeration", extendedLife: "10-14 days", chemical: "Sodium Benzoate / Nisin" },
     "cheese": { normalLife: "1-2 weeks", preservative: "Refrigeration", extendedLife: "1-2 months", chemical: "Natamycin (Anti-fungal)" },
     "yogurt": { normalLife: "1-2 weeks", preservative: "Refrigeration", extendedLife: "1 month", chemical: "Potassium Sorbate" },
-    "butter": { normalLife: "1-2 months", preservative: "Refrigeration", extendedLife: "6-9 months (Frozen)", chemical: "Salt (Natural Preservative)" },
-    "cheddar cheese": { normalLife: "2-4 weeks", preservative: "Refrigeration", extendedLife: "3-6 months", chemical: "Sorbic Acid" },
-    "mozzarella": { normalLife: "1-2 weeks", preservative: "Refrigeration", extendedLife: "1 month", chemical: "Calcium Chloride" },
 
     // Proteins
     "eggs": { normalLife: "3-5 weeks", preservative: "Refrigeration", extendedLife: "3-5 weeks", chemical: "Mineral Oil Coating" },
-    "chicken breast": { normalLife: "1-2 days", preservative: "Freezing", extendedLife: "9 months", chemical: "Sodium Lactate" },
+    "chicken": { normalLife: "1-2 days", preservative: "Freezing", extendedLife: "9 months", chemical: "Sodium Lactate" },
     "salmon": { normalLife: "1-2 days", preservative: "Freezing", extendedLife: "6 months", chemical: "Sodium Nitrite (Smoked)" },
     "beef": { normalLife: "3-5 days", preservative: "Freezing", extendedLife: "6-12 months", chemical: "Sodium Ascorbate" },
-    "pork": { normalLife: "3-5 days", preservative: "Freezing", extendedLife: "6 months", chemical: "Potassium Lactate" },
-    "lentils": { normalLife: "1 year", preservative: "Airtight Container", extendedLife: "2-3 years", chemical: "Diatomaceous Earth" },
-    "chickpeas": { normalLife: "1 year", preservative: "Airtight Container", extendedLife: "2-3 years", chemical: "Oxygen Absorbers" },
 
-    // Grains & Pantry
+    // Grains
     "bread": { normalLife: "3-5 days", preservative: "Freezing", extendedLife: "3 months", chemical: "Calcium Propionate" },
     "rice": { normalLife: "1-2 years", preservative: "Airtight Container", extendedLife: "30 years", chemical: "Oxygen Absorbers" },
     "pasta": { normalLife: "1-2 years", preservative: "Airtight Container", extendedLife: "3 years", chemical: "None" },
-    "oats": { normalLife: "1 year", preservative: "Airtight Container", extendedLife: "2 years", chemical: "BHT (Antioxidant)" },
-    "cereal": { normalLife: "6-12 months", preservative: "Airtight Container", extendedLife: "1 year", chemical: "BHA / BHT" },
-    "flour": { normalLife: "6-8 months", preservative: "Freezing", extendedLife: "1-2 years", chemical: "Benzoyl Peroxide (Bleaching)" },
-    "sugar": { normalLife: "Indefinite", preservative: "Airtight Container", extendedLife: "Indefinite", chemical: "None (Hygroscopic)" },
-    "salt": { normalLife: "Indefinite", preservative: "Airtight Container", extendedLife: "Indefinite", chemical: "Sodium Aluminosilicate (Anti-caking)" },
-    "honey": { normalLife: "Indefinite", preservative: "Airtight Container", extendedLife: "Indefinite", chemical: "None (Natural Antibacterial)" },
-    "jam": { normalLife: "6-12 months", preservative: "Refrigeration (Opened)", extendedLife: "1 year", chemical: "Pectin / Citric Acid" },
-    "peanut butter": { normalLife: "6-9 months", preservative: "Cool, Dark Place", extendedLife: "1 year", chemical: "Hydrogenated Vegetable Oil" },
-    "almonds": { normalLife: "9-12 months", preservative: "Refrigeration", extendedLife: "2 years", chemical: "Vitamin E (Natural Antioxidant)" },
-    "walnuts": { normalLife: "6 months", preservative: "Refrigeration", extendedLife: "1 year", chemical: "BHA" },
-    "cashews": { normalLife: "6-9 months", preservative: "Refrigeration", extendedLife: "1 year", chemical: "Nitrogen Flushing" },
-
-    // Beverages
-    "coffee": { normalLife: "3-5 months", preservative: "Airtight Container", extendedLife: "1-2 years (Frozen)", chemical: "Nitrogen Flushing" },
-    "tea": { normalLife: "6-12 months", preservative: "Airtight Container", extendedLife: "1-2 years", chemical: "None" },
-    "orange juice": { normalLife: "7-10 days", preservative: "Refrigeration", extendedLife: "8-12 months (Frozen)", chemical: "Sodium Benzoate" },
-    "apple juice": { normalLife: "7-10 days", preservative: "Refrigeration", extendedLife: "8-12 months (Frozen)", chemical: "Potassium Sorbate" },
-    "yogurt drink": { normalLife: "1-2 weeks", preservative: "Refrigeration", extendedLife: "1 month", chemical: "Natamycin" },
-
-    // Bakery
-    "bagel": { normalLife: "3-5 days", preservative: "Freezing", extendedLife: "3 months", chemical: "Calcium Propionate" },
-    "tortilla": { normalLife: "1 week", preservative: "Refrigeration", extendedLife: "1 month", chemical: "Fumaric Acid" },
 };
 
 export default function FoodPreservativePage() {
     const [inventory, setInventory] = useState<UserInventoryItem[]>([]);
     const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState("");
 
     useEffect(() => {
         async function loadInventory() {
@@ -86,7 +51,6 @@ export default function FoodPreservativePage() {
                 setInventory(items);
             } catch (error) {
                 console.error("Failed to load inventory:", error);
-                // Fallback to empty or handle error visually if needed
             } finally {
                 setLoading(false);
             }
@@ -97,15 +61,14 @@ export default function FoodPreservativePage() {
 
     const getPreservationInfo = (itemName: string) => {
         const lowerName = itemName.toLowerCase();
-        // Try exact match
         if (preservationDatabase[lowerName]) {
             return preservationDatabase[lowerName];
         }
 
-        // Try partial match (e.g. "Green Apples" -> matches "apples")
-        const key = Object.keys(preservationDatabase).find(k => lowerName.includes(k) || k.includes(lowerName));
-        if (key) {
-            return preservationDatabase[key];
+        for (const [key, value] of Object.entries(preservationDatabase)) {
+            if (lowerName.includes(key) || key.includes(lowerName)) {
+                return value;
+            }
         }
 
         return {
@@ -116,173 +79,225 @@ export default function FoodPreservativePage() {
         };
     };
 
-    // Helper to parse duration strings into days
-    const parseDuration = (durationStr: string): number => {
-        if (!durationStr || durationStr === "N/A" || durationStr === "Indefinite") return 0;
-
-        const lower = durationStr.toLowerCase();
-        const value = parseInt(lower.match(/\d+/)?.[0] || "0");
-
-        if (lower.includes("year")) return value * 365;
-        if (lower.includes("month")) return value * 30;
-        if (lower.includes("week")) return value * 7;
-        return value; // days
-    };
-
     const calculateDates = (item: UserInventoryItem, info: any) => {
-        const today = new Date();
         let normalDisplay = info.normalLife;
         let extendedDisplay = info.extendedLife;
         let isExpired = false;
 
         if (item.expirationDate) {
             const expDate = new Date(item.expirationDate);
+            const today = new Date();
             const diffTime = expDate.getTime() - today.getTime();
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
             if (diffDays < 0) {
+                normalDisplay = `Expired ${Math.abs(diffDays)} days ago`;
                 isExpired = true;
-                normalDisplay = `Expired ${Math.abs(diffDays)} days ago (${expDate.toLocaleDateString()})`;
-                extendedDisplay = "Expired - Cannot Extend";
+            } else if (diffDays === 0) {
+                normalDisplay = "Expires today";
+                isExpired = true;
             } else {
-                normalDisplay = `${diffDays} days left (${expDate.toLocaleDateString()})`;
-
-                // Calculate extended date
-                // If we have purchase date, calculate from there. Else assume current expiry is based on normal life.
-                const extendedDays = parseDuration(info.extendedLife);
-                const normalDays = parseDuration(info.normalLife);
-
-                if (extendedDays > 0) {
-                    let baseDate = item.purchaseDate ? new Date(item.purchaseDate) : new Date(expDate.getTime() - (normalDays * 24 * 60 * 60 * 1000));
-                    // If base date calculation results in invalid date or way in past, just use today as baseline for "extending from now" logic if that makes more sense, 
-                    // BUT usually preservation implies starting from fresh. 
-                    // If item is already near expiry, preservation might not add full extended life.
-                    // For simplicity/MVP: We calculate what the date WOULD be if preserved properly from start.
-
-                    const newExpDate = new Date(baseDate.getTime() + (extendedDays * 24 * 60 * 60 * 1000));
-
-                    // If the calculated extended date is actually BEFORE the current expiry (e.g. data inconsistency), ignore it
-                    if (newExpDate > expDate) {
-                        extendedDisplay = `Until ${newExpDate.toLocaleDateString()} (approx)`;
-                    }
-                }
+                normalDisplay = `Expires in ${diffDays} days`;
             }
         }
 
         return { normalDisplay, extendedDisplay, isExpired };
     };
 
+    // Filter inventory based on search
+    const filteredInventory = inventory.filter(item =>
+        item.itemName.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    // Calculate statistics
+    const totalItems = filteredInventory.length;
+    const expiringSoon = filteredInventory.filter(item => {
+        if (!item.expirationDate) return false;
+        const diffDays = Math.ceil((new Date(item.expirationDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+        return diffDays >= 0 && diffDays <= 7;
+    }).length;
+    const expired = filteredInventory.filter(item => {
+        if (!item.expirationDate) return false;
+        return new Date(item.expirationDate) < new Date();
+    }).length;
+
     return (
-        <div className="min-h-screen bg-white text-slate-900 font-sans">
+        <div className="min-h-screen bg-[#BCEBD7] text-slate-900 font-sans">
             <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 sm:px-6 lg:px-8 pt-24">
                 <SiteHeader />
 
                 <main className="flex-1 py-12">
                     <div className="w-full mx-auto">
-                        <h1 className="text-3xl font-bold text-[#714B67] mb-8 text-center">
-                            Food Preservative Guide
-                        </h1>
-                        <p className="text-slate-600 text-center mb-10 max-w-2xl mx-auto">
-                            Learn how to extend the shelf life of your personal inventory with proper preservation techniques.
-                        </p>
-
-                        <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
-                            <table className="min-w-full divide-y divide-slate-200">
-                                <thead className="bg-slate-50">
-                                    <tr>
-                                        <th scope="col" className="px-6 py-4 text-left text-sm font-semibold text-slate-900">
-                                            My Food
-                                        </th>
-                                        <th scope="col" className="px-6 py-4 text-left text-sm font-semibold text-slate-900">
-                                            Normally stay
-                                        </th>
-                                        <th scope="col" className="px-6 py-4 text-left text-sm font-semibold text-slate-900">
-                                            Preservative / Method
-                                        </th>
-                                        <th scope="col" className="px-6 py-4 text-left text-sm font-semibold text-slate-900">
-                                            Chemical / Additive
-                                        </th>
-                                        <th scope="col" className="px-6 py-4 text-left text-sm font-semibold text-slate-900">
-                                            Extended stay
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-200 bg-white">
-                                    {loading ? (
-                                        <tr>
-                                            <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
-                                                Loading your inventory...
-                                            </td>
-                                        </tr>
-                                    ) : inventory.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
-                                                No items found in your inventory.
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        inventory.map((item) => {
-                                            const info = getPreservationInfo(item.itemName);
-                                            const { normalDisplay, extendedDisplay, isExpired } = calculateDates(item, info);
-
-                                            return (
-                                                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">
-                                                        {item.itemName}
-                                                    </td>
-                                                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isExpired ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
-                                                        {normalDisplay}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                                                        {info.preservative}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                                                        {info.chemical}
-                                                    </td>
-                                                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-semibold ${isExpired ? 'text-red-600' : 'text-[#714B67]'}`}>
-                                                        {extendedDisplay}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })
-                                    )}
-                                </tbody>
-                            </table>
+                        {/* Header Section */}
+                        <div className="flex items-center justify-between mb-8">
+                            <div>
+                                <h1 className="text-4xl font-bold text-slate-900 mb-2">Food Preservation Guide</h1>
+                                <p className="text-slate-600">Extend shelf life with proper preservation techniques</p>
+                            </div>
+                            <div className="flex items-center gap-2 text-emerald-600">
+                                <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                </svg>
+                            </div>
                         </div>
 
-                        {/* Analysis Section */}
-                        {!loading && inventory.length > 0 && (
-                            <div className="mt-12 bg-slate-50 rounded-xl p-8 border border-slate-200">
-                                <h2 className="text-2xl font-bold text-[#714B67] mb-6">
-                                    Preservation Analysis
-                                </h2>
-                                <div className="space-y-4">
-                                    {Object.entries(
-                                        inventory.reduce((acc, item) => {
-                                            const info = getPreservationInfo(item.itemName);
-                                            const key = info.preservative;
-                                            if (!acc[key]) acc[key] = { items: [], chemicals: new Set() };
-                                            acc[key].items.push(item.itemName);
-                                            if (info.chemical !== "None") acc[key].chemicals.add(info.chemical);
-                                            return acc;
-                                        }, {} as Record<string, { items: string[], chemicals: Set<string> }>)
-                                    ).map(([method, data]) => (
-                                        <div key={method} className="flex items-start gap-3">
-                                            <div className="mt-1.5 h-2 w-2 rounded-full bg-[#714B67] flex-shrink-0" />
-                                            <div>
-                                                <p className="text-slate-700">
-                                                    Use <span className="font-semibold text-slate-900">{method}</span> for:{" "}
-                                                    <span className="text-slate-600">{data.items.join(", ")}</span>
-                                                </p>
-                                                {data.chemicals.size > 0 && (
-                                                    <p className="text-sm text-slate-500 mt-1">
-                                                        Recommended additives: {Array.from(data.chemicals).join(", ")}
-                                                    </p>
+                        {/* Statistics Cards */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                            <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-blue-50 to-blue-100 p-6 shadow-lg">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-medium text-blue-700">Total Items</p>
+                                        <p className="text-3xl font-bold text-blue-900 mt-1">{totalItems}</p>
+                                    </div>
+                                    <div className="p-3 bg-blue-200 rounded-xl">
+                                        <svg className="w-8 h-8 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-orange-50 to-orange-100 p-6 shadow-lg">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-medium text-orange-700">Expiring Soon</p>
+                                        <p className="text-3xl font-bold text-orange-900 mt-1">{expiringSoon}</p>
+                                    </div>
+                                    <div className="p-3 bg-orange-200 rounded-xl">
+                                        <svg className="w-8 h-8 text-orange-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-red-50 to-red-100 p-6 shadow-lg">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-medium text-red-700">Expired</p>
+                                        <p className="text-3xl font-bold text-red-900 mt-1">{expired}</p>
+                                    </div>
+                                    <div className="p-3 bg-red-200 rounded-xl">
+                                        <svg className="w-8 h-8 text-red-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Search Bar */}
+                        <div className="rounded-2xl border border-white/60 bg-white p-4 shadow-lg mb-6">
+                            <div className="flex items-center gap-3">
+                                <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                <input
+                                    type="text"
+                                    placeholder="Search your inventory..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="flex-1 bg-transparent border-none outline-none text-slate-900 placeholder-slate-400"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Items Grid */}
+                        {loading ? (
+                            <div className="text-center py-16">
+                                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mb-4"></div>
+                                <p className="text-slate-600">Loading your inventory...</p>
+                            </div>
+                        ) : filteredInventory.length === 0 ? (
+                            <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 shadow-sm">
+                                <svg className="w-16 h-16 mx-auto text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                                </svg>
+                                <h3 className="text-xl font-semibold text-slate-900 mb-2">No items found</h3>
+                                <p className="text-slate-500">
+                                    {inventory.length === 0
+                                        ? "Add items to your inventory to see preservation tips"
+                                        : "No items match your search"
+                                    }
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {filteredInventory.map((item) => {
+                                    const info = getPreservationInfo(item.itemName);
+                                    const { normalDisplay, extendedDisplay, isExpired } = calculateDates(item, info);
+
+                                    return (
+                                        <div
+                                            key={item.id}
+                                            className={`rounded-2xl border-2 bg-white p-6 shadow-lg transition-all hover:shadow-xl ${isExpired ? 'border-red-300' : 'border-white/60'
+                                                }`}
+                                        >
+                                            {/* Header */}
+                                            <div className="flex items-start justify-between mb-4">
+                                                <div className="flex-1">
+                                                    <h3 className="text-xl font-bold text-slate-900">{item.itemName}</h3>
+                                                    <p className="text-sm text-slate-500 capitalize">{item.category}</p>
+                                                </div>
+                                                {isExpired && (
+                                                    <div className="px-3 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-full">
+                                                        EXPIRED
+                                                    </div>
                                                 )}
                                             </div>
+
+                                            {/* Status */}
+                                            <div className={`rounded-xl p-4 mb-4 ${isExpired ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <svg className={`w-5 h-5 ${isExpired ? 'text-red-600' : 'text-emerald-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    <p className={`text-sm font-semibold ${isExpired ? 'text-red-700' : 'text-emerald-700'}`}>Current Status</p>
+                                                </div>
+                                                <p className={`text-sm ${isExpired ? 'text-red-900' : 'text-emerald-900'} font-medium`}>{normalDisplay}</p>
+                                            </div>
+
+                                            {/* Preservation Method */}
+                                            <div className="space-y-3">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="p-2 bg-blue-100 rounded-lg mt-0.5">
+                                                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                        </svg>
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Method</p>
+                                                        <p className="text-sm font-medium text-slate-900">{info.preservative}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-start gap-3">
+                                                    <div className="p-2 bg-purple-100 rounded-lg mt-0.5">
+                                                        <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                                        </svg>
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Additive</p>
+                                                        <p className="text-sm font-medium text-slate-900">{info.chemical}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-start gap-3">
+                                                    <div className="p-2 bg-emerald-100 rounded-lg mt-0.5">
+                                                        <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                                        </svg>
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Extended Life</p>
+                                                        <p className="text-sm font-bold text-emerald-600">{extendedDisplay}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    ))}
-                                </div>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

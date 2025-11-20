@@ -104,8 +104,8 @@ export default function CommunityPage() {
     }
 
     return (
-        <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-            <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 sm:px-6 lg:px-8">
+        <div className="min-h-screen bg-[#BCEBD7] text-slate-900 font-sans">
+            <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 sm:px-6 lg:px-8 pt-24">
                 <SiteHeader />
 
                 <main className="flex-1 py-12">
@@ -222,8 +222,8 @@ function PostCard({
                 </div>
                 <div className="flex items-center gap-2">
                     <span className={`px-3 py-1 rounded-full text-xs font-semibold ${post.post_type === "donate"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-blue-100 text-blue-700"
+                        ? "bg-green-100 text-green-700"
+                        : "bg-blue-100 text-blue-700"
                         }`}>
                         {post.post_type === "donate" ? "🎁 I want to donate" : "🙏 I need"}
                     </span>
@@ -385,8 +385,8 @@ function CreatePostModal({
                                 type="button"
                                 onClick={() => setPostType("need")}
                                 className={`py-3 px-4 rounded-lg font-medium transition-all border-2 ${postType === "need"
-                                        ? "bg-blue-100 border-blue-500 text-blue-700"
-                                        : "bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300"
+                                    ? "bg-blue-100 border-blue-500 text-blue-700"
+                                    : "bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300"
                                     }`}
                             >
                                 🙏 I need
@@ -395,8 +395,8 @@ function CreatePostModal({
                                 type="button"
                                 onClick={() => setPostType("donate")}
                                 className={`py-3 px-4 rounded-lg font-medium transition-all border-2 ${postType === "donate"
-                                        ? "bg-green-100 border-green-500 text-green-700"
-                                        : "bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300"
+                                    ? "bg-green-100 border-green-500 text-green-700"
+                                    : "bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300"
                                     }`}
                             >
                                 🎁 I want to donate

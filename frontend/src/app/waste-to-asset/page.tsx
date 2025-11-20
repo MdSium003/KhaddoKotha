@@ -132,8 +132,8 @@ export default function WasteToAssetPage() {
     );
 
     return (
-        <div className="min-h-screen bg-white text-slate-900 font-sans">
-            <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 sm:px-6 lg:px-8">
+        <div className="min-h-screen bg-[#BCEBD7] text-slate-900 font-sans">
+            <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 sm:px-6 lg:px-8 pt-24">
                 <SiteHeader />
 
                 <main className="flex-1 py-12">

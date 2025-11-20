@@ -16,7 +16,7 @@ export function HeroSection({ mission }: HeroProps) {
       />
 
       {/* Get Started Button - Positioned at Bottom Right */}
-      <div className="absolute bottom-8 right-8">
+      <div className="absolute bottom-9 right-23">
         <a
           href="/signup"
           className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-8 py-4 text-base font-semibold text-white shadow-xl shadow-emerald-900/30 transition hover:bg-emerald-700 hover:scale-105"

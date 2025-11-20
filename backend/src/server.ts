@@ -1240,6 +1240,64 @@ app.delete("/api/community/comments/:id", async (req, res) => {
   }
 });
 
+// Chatbot Endpoint
+app.post("/api/chatbot", async (req, res) => {
+  try {
+    if (!genAI) {
+      return res.status(503).json({ message: "AI service not configured" });
+    }
+
+    const body = z.object({
+      message: z.string().min(1),
+      conversationHistory: z.array(z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string(),
+      })).optional(),
+    }).parse(req.body);
+
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    // Build conversation history for context
+    const historyContext = body.conversationHistory?.map(msg =>
+      `${msg.role === 'user' ? 'User' : 'KhaddoKotha'}: ${msg.content}`
+    ).join('\n') || '';
+
+    const systemPrompt = `You are KhaddoKotha AI Assistant, a helpful and friendly chatbot for a food management and sustainability platform. 
+
+Your role is to:
+- Help users reduce food waste and save money
+- Provide tips on food preservation and storage
+- Suggest recipes for ingredients they have
+- Answer questions about food expiration and safety
+- Promote sustainable food consumption practices
+- Guide users on how to use the platform features
+
+Be concise, friendly, and helpful. Keep responses under 150 words unless detailed instructions are needed.
+
+Platform Features:
+- Smart Inventory: Track food items with expiration dates
+- Usage Analytics: Monitor consumption patterns
+- Food Preservative Guide: Learn preservation methods
+- Waste to Asset: Get creative ideas to repurpose food
+- Community: Share and donate food
+
+${historyContext ? `Previous conversation:\n${historyContext}\n\n` : ''}User: ${body.message}
+KhaddoKotha:`;
+
+    const result = await model.generateContent(systemPrompt);
+    const response = await result.response;
+    const text = response.text();
+
+    res.json({ reply: text });
+  } catch (error) {
+    console.error("Chatbot error:", error);
+    res.status(500).json({
+      reply: "I'm having trouble connecting right now. Please try again in a moment!"
+    });
+  }
+});
+
+
 app.use((_req, res) => {
   res.status(404).json({ message: "Route not found" });
 });
