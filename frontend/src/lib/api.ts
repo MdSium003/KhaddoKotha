@@ -216,6 +216,40 @@ export async function fetchFoodInventory(): Promise<FoodInventoryItem[]> {
   return data.items;
 }
 
+// Resources types
+export type Resource = {
+  id: number;
+  title: string;
+  description: string | null;
+  url: string | null;
+  category: string;
+  type: string;
+  created_at: string;
+};
+
+export type ResourcesResponse = {
+  resources: Resource[];
+};
+
+// Fetch all resources (with optional filtering)
+export async function fetchResources(options?: {
+  category?: string;
+  type?: string;
+}): Promise<Resource[]> {
+  const params = new URLSearchParams();
+  if (options?.category) params.append("category", options.category);
+  if (options?.type) params.append("type", options.type);
+
+  const queryString = params.toString();
+  const endpoint = `/api/resources${queryString ? `?${queryString}` : ""}`;
+
+  const data = await request<ResourcesResponse>(endpoint, {
+    cache: "reload",
+  });
+
+  return data.resources;
+}
+
 // Authentication types
 export type AuthResponse = {
   message: string;

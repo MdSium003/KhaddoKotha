@@ -110,6 +110,48 @@ app.get("/api/inventory", async (_req, res) => {
   }
 });
 
+app.get("/api/resources", async (req, res) => {
+  try {
+    const category = req.query.category as string | undefined;
+    const type = req.query.type as string | undefined;
+
+    let rows;
+    if (category && type) {
+      rows = await sql`
+        SELECT id, title, description, url, category, type, created_at
+        FROM resources
+        WHERE category = ${category} AND type = ${type}
+        ORDER BY title
+      `;
+    } else if (category) {
+      rows = await sql`
+        SELECT id, title, description, url, category, type, created_at
+        FROM resources
+        WHERE category = ${category}
+        ORDER BY title
+      `;
+    } else if (type) {
+      rows = await sql`
+        SELECT id, title, description, url, category, type, created_at
+        FROM resources
+        WHERE type = ${type}
+        ORDER BY category, title
+      `;
+    } else {
+      rows = await sql`
+        SELECT id, title, description, url, category, type, created_at
+        FROM resources
+        ORDER BY category, title
+      `;
+    }
+
+    res.json({ resources: rows });
+  } catch (error) {
+    console.error("Resources query failed", error);
+    res.status(500).json({ message: "Failed to load resources" });
+  }
+});
+
 // Authentication endpoints
 app.post("/api/auth/signup", async (req, res) => {
   try {
