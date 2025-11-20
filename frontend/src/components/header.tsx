@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
+import { NotificationBell } from "./notification-bell";
 
 const navigation = [
   { label: "Apps", href: "/#features" },
@@ -32,6 +33,7 @@ export function SiteHeader() {
         ))}
       </nav>
       <div className="flex items-center gap-3">
+        <NotificationBell />
         {loading ? (
           <div className="h-8 w-20 animate-pulse rounded-full bg-stone-200"></div>
         ) : user ? (

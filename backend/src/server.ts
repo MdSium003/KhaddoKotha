@@ -821,6 +821,85 @@ app.delete("/api/user-inventory/:id", async (req, res) => {
   }
 });
 
+// Notifications Endpoint
+app.get("/api/notifications", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const twoDaysFromNow = new Date(today);
+    twoDaysFromNow.setDate(today.getDate() + 2);
+
+    // Get expired items
+    const expiredItems = await sql`
+      SELECT id, item_name, expiration_date
+      FROM user_inventory
+      WHERE user_id = ${decoded.userId}
+        AND expiration_date <= ${today.toISOString().split('T')[0]}
+      ORDER BY expiration_date ASC
+    `;
+
+    // Get expiring soon items (within 2 days, but not yet expired)
+    const expiringSoonItems = await sql`
+      SELECT id, item_name, expiration_date
+      FROM user_inventory
+      WHERE user_id = ${decoded.userId}
+        AND expiration_date > ${today.toISOString().split('T')[0]}
+        AND expiration_date <= ${twoDaysFromNow.toISOString().split('T')[0]}
+      ORDER BY expiration_date ASC
+    `;
+
+    const notifications = [];
+
+    // Create expired notification
+    if (expiredItems.length > 0) {
+      notifications.push({
+        id: `expired-${Date.now()}`,
+        type: "expired",
+        message: expiredItems.length === 1
+          ? `${expiredItems[0].item_name} has expired`
+          : `${expiredItems.length} items have expired`,
+        items: expiredItems.map((item: any) => ({
+          id: item.id,
+          name: item.item_name,
+          expirationDate: item.expiration_date,
+        })),
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    // Create expiring soon notification
+    if (expiringSoonItems.length > 0) {
+      notifications.push({
+        id: `expiring-${Date.now()}`,
+        type: "expiring",
+        message: expiringSoonItems.length === 1
+          ? `${expiringSoonItems[0].item_name} is expiring soon`
+          : `${expiringSoonItems.length} items are expiring soon`,
+        items: expiringSoonItems.map((item: any) => ({
+          id: item.id,
+          name: item.item_name,
+          expirationDate: item.expiration_date,
+        })),
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    res.json({ notifications });
+  } catch (error) {
+    console.error("Fetch notifications failed", error);
+    res.status(500).json({ message: "Failed to fetch notifications" });
+  }
+});
+
 // Waste to Asset AI Endpoint
 app.post("/api/waste-to-asset", async (req, res) => {
   try {
@@ -834,18 +913,121 @@ app.post("/api/waste-to-asset", async (req, res) => {
     }
 
     const body = z.object({
-      itemName: z.string().min(1),
+      itemNames: z.array(z.string().min(1)).min(1),
     }).parse(req.body);
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    const prompt = `I have some wasted or overripe ${body.itemName}. Give me 3 creative, practical, and safe ways to repurpose it (e.g., recipes, gardening, DIY). Keep it concise. Format as a simple list.`;
+    const itemList = body.itemNames.join(", ");
+    const multipleItems = body.itemNames.length > 1;
+
+    const prompt = multipleItems
+      ? `I have the following wasted or overripe items: ${itemList}.
+
+First, determine if these items can be combined together in a recipe or project. If they can be combined, generate ideas that use them together. If they cannot be combined, generate separate ideas.
+
+Return your response as a JSON object with this exact structure:
+{
+  "canCombine": true or false,
+  "recipeIdeas": [
+    {
+      "title": "Short catchy title (max 5 words)",
+      "summary": "Brief one-sentence description (max 20 words)",
+      "details": "Detailed step-by-step instructions (3-5 sentences)"
+    },
+    // ... 2 more recipe ideas (3 total)
+  ],
+  "nonRecipeIdeas": [
+    {
+      "title": "Short catchy title (max 5 words)",
+      "summary": "Brief one-sentence description (max 20 words)",
+      "details": "Detailed step-by-step instructions (3-5 sentences)"
+    },
+    // ... 2 more non-recipe ideas (3 total)
+  ]
+}
+
+Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gardening, DIY, composting, beauty treatments, etc.). Make them creative, practical, and safe.`
+      : `I have some wasted or overripe ${body.itemNames[0]}.
+
+Generate creative, practical, and safe ways to repurpose it.
+
+Return your response as a JSON object with this exact structure:
+{
+  "canCombine": true,
+  "recipeIdeas": [
+    {
+      "title": "Short catchy title (max 5 words)",
+      "summary": "Brief one-sentence description (max 20 words)",
+      "details": "Detailed step-by-step instructions (3-5 sentences)"
+    },
+    // ... 2 more recipe ideas (3 total)
+  ],
+  "nonRecipeIdeas": [
+    {
+      "title": "Short catchy title (max 5 words)",
+      "summary": "Brief one-sentence description (max 20 words)",
+      "details": "Detailed step-by-step instructions (3-5 sentences)"
+    },
+    // ... 2 more non-recipe ideas (3 total)
+  ]
+}
+
+Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gardening, DIY, composting, beauty treatments, etc.).`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
 
-    res.json({ suggestions: text });
+    // Try to parse JSON from the response
+    let parsedData;
+    try {
+      // Remove markdown code blocks if present
+      const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      parsedData = JSON.parse(cleanedText);
+    } catch (parseError) {
+      console.error("Failed to parse AI response as JSON:", text);
+      // Fallback: return unparsed text
+      return res.json({
+        canCombine: true,
+        recipeIdeas: [
+          {
+            title: "AI Suggestion",
+            summary: "See details for ideas",
+            details: text,
+          },
+          {
+            title: "Try Again",
+            summary: "Response format was unexpected",
+            details: "Please try generating again for better results.",
+          },
+          {
+            title: "Manual Recipe",
+            summary: "Look up traditional recipes",
+            details: "You can search online for recipes using these ingredients.",
+          },
+        ],
+        nonRecipeIdeas: [
+          {
+            title: "Composting",
+            summary: "Add to compost pile",
+            details: "These items can be composted to enrich your garden soil.",
+          },
+          {
+            title: "Plant Fertilizer",
+            summary: "Create natural fertilizer",
+            details: "Many food scraps can be turned into liquid fertilizer for plants.",
+          },
+          {
+            title: "DIY Projects",
+            summary: "Craft and beauty uses",
+            details: "Search for DIY beauty treatments or craft projects using these materials.",
+          },
+        ],
+      });
+    }
+
+    res.json(parsedData);
   } catch (error) {
     console.error("Waste to Asset AI failed. Error details:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -853,6 +1035,210 @@ app.post("/api/waste-to-asset", async (req, res) => {
   }
 });
 
+// =====================
+// COMMUNITY ENDPOINTS
+// =====================
+
+// Get all community posts
+app.get("/api/community/posts", async (req, res) => {
+  try {
+    const posts = await sql`
+      SELECT 
+        cp.*,
+        u.name as author_name,
+        u.avatar_url,
+        COUNT(pc.id)::int as comment_count
+      FROM community_posts cp
+      INNER JOIN users u ON cp.user_id = u.id
+      LEFT JOIN post_comments pc ON cp.id = pc.post_id
+      GROUP BY cp.id, u.name, u.avatar_url
+      ORDER BY cp.created_at DESC
+    `;
+
+    res.json({ posts });
+  } catch (error) {
+    console.error("Fetch community posts failed", error);
+    res.status(500).json({ message: "Failed to fetch posts" });
+  }
+});
+
+// Create a new community post
+app.post("/api/community/posts", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const body = z.object({
+      postType: z.enum(["need", "donate"]),
+      foodName: z.string().min(1),
+      quantity: z.number().positive(),
+      unit: z.string().optional(),
+      targetDate: z.string(),
+      details: z.string().optional(),
+    }).parse(req.body);
+
+    const result = await sql`
+      INSERT INTO community_posts (user_id, post_type, food_name, quantity, unit, target_date, details)
+      VALUES (${decoded.userId}, ${body.postType}, ${body.foodName}, ${body.quantity}, ${body.unit || null}, ${body.targetDate}, ${body.details || null})
+      RETURNING *
+    `;
+
+    const post = result[0];
+
+    // Fetch user info to include in response
+    const users = await sql`SELECT name, avatar_url FROM users WHERE id = ${decoded.userId}`;
+    const enrichedPost = {
+      ...post,
+      author_name: users[0]?.name,
+      avatar_url: users[0]?.avatar_url,
+      comment_count: 0,
+    };
+
+    res.status(201).json({ post: enrichedPost });
+  } catch (error) {
+    console.error("Create community post failed", error);
+    res.status(500).json({ message: "Failed to create post" });
+  }
+});
+
+// Get single post with comments
+app.get("/api/community/posts/:id", async (req, res) => {
+  try {
+    const postId = parseInt(req.params.id);
+
+    const posts = await sql`
+      SELECT 
+        cp.*,
+        u.name as author_name,
+        u.avatar_url
+      FROM community_posts cp
+      INNER JOIN users u ON cp.user_id = u.id
+      WHERE cp.id = ${postId}
+    `;
+
+    if (posts.length === 0) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    const comments = await sql`
+      SELECT 
+        pc.*,
+        u.name as author_name,
+        u.avatar_url
+      FROM post_comments pc
+      INNER JOIN users u ON pc.user_id = u.id
+      WHERE pc.post_id = ${postId}
+      ORDER BY pc.created_at ASC
+    `;
+
+    res.json({ post: posts[0], comments });
+  } catch (error) {
+    console.error("Fetch post failed", error);
+    res.status(500).json({ message: "Failed to fetch post" });
+  }
+});
+
+// Delete a community post
+app.delete("/api/community/posts/:id", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const postId = parseInt(req.params.id);
+
+    // Check if post belongs to user
+    const posts = await sql`
+      SELECT * FROM community_posts WHERE id = ${postId} AND user_id = ${decoded.userId}
+    `;
+
+    if (posts.length === 0) {
+      return res.status(403).json({ message: "Not authorized to delete this post" });
+    }
+
+    await sql`DELETE FROM community_posts WHERE id = ${postId}`;
+    res.json({ message: "Post deleted successfully" });
+  } catch (error) {
+    console.error("Delete post failed", error);
+    res.status(500).json({ message: "Failed to delete post" });
+  }
+});
+
+// Add comment to a post
+app.post("/api/community/posts/:id/comments", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const postId = parseInt(req.params.id);
+
+    const body = z.object({
+      commentText: z.string().min(1),
+    }).parse(req.body);
+
+    const result = await sql`
+      INSERT INTO post_comments (post_id, user_id, comment_text)
+      VALUES (${postId}, ${decoded.userId}, ${body.commentText})
+      RETURNING *
+    `;
+
+    const comment = result[0];
+
+    // Get author info
+    const users = await sql`SELECT name, avatar_url FROM users WHERE id = ${decoded.userId}`;
+    const enrichedComment = {
+      ...comment,
+      author_name: users[0].name,
+      avatar_url: users[0].avatar_url,
+    };
+
+    res.status(201).json({ comment: enrichedComment });
+  } catch (error) {
+    console.error("Add comment failed", error);
+    res.status(500).json({ message: "Failed to add comment" });
+  }
+});
+
+// Delete a comment
+app.delete("/api/community/comments/:id", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const commentId = parseInt(req.params.id);
+
+    // Check if comment belongs to user
+    const comments = await sql`
+      SELECT * FROM post_comments WHERE id = ${commentId} AND user_id = ${decoded.userId}
+    `;
+
+    if (comments.length === 0) {
+      return res.status(403).json({ message: "Not authorized to delete this comment" });
+    }
+
+    await sql`DELETE FROM post_comments WHERE id = ${commentId}`;
+    res.json({ message: "Comment deleted successfully" });
+  } catch (error) {
+    console.error("Delete comment failed", error);
+    res.status(500).json({ message: "Failed to delete comment" });
+  }
+});
 
 app.use((_req, res) => {
   res.status(404).json({ message: "Route not found" });
