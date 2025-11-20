@@ -9,6 +9,7 @@ const navigation = [
   { label: "Food Preservative", href: "/food-preservative" },
   { label: "Waste to Asset", href: "/waste-to-asset" },
   { label: "Community", href: "/community" },
+  { label: "Diet Planner", href: "/diet-planner" },
 ];
 
 export function SiteHeader() {
