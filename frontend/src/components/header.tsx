@@ -6,9 +6,10 @@ import { NotificationBell } from "./notification-bell";
 import { useState, useRef, useEffect } from "react";
 
 const navigation = [
-  { label: "Inventory", href: "/inventory" },
+  //{ label: "Inventory", href: "/inventory" },
   { label: "Food Preservative", href: "/food-preservative" },
   { label: "Waste to Asset", href: "/waste-to-asset" },
+  { label: "Diet Planner", href: "/diet-planner" },
   { label: "Community", href: "/community" },
 ];
 
@@ -122,15 +123,16 @@ export function SiteHeader() {
                           <span>Daily Tracker</span>
                         </Link>
                         <Link
-                          href="/inventory"
-                          className="flex sm:hidden items-center gap-3 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition"
+                          href="/diet-planner"
+                          className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition"
                           onClick={() => setShowDropdown(false)}
                         >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                          {/* <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
-                          <span>Inventory</span>
+                          <span>Diet Planner</span> */}
                         </Link>
+
                       </div>
 
                       {/* Logout */}
