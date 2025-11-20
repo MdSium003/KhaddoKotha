@@ -837,7 +837,7 @@ app.post("/api/waste-to-asset", async (req, res) => {
       itemName: z.string().min(1),
     }).parse(req.body);
 
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const prompt = `I have some wasted or overripe ${body.itemName}. Give me 3 creative, practical, and safe ways to repurpose it (e.g., recipes, gardening, DIY). Keep it concise. Format as a simple list.`;
 
