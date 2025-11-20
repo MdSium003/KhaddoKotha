@@ -70,40 +70,76 @@ export default function DietPlannerPage() {
                     </div>
 
                     {/* Input Section */}
-                    <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
-                        <h2 className="text-2xl font-bold text-slate-900 mb-6">Plan Settings</h2>
-
-                        <div className="grid gap-6 md:grid-cols-2 mb-6">
+                    <div className="rounded-3xl border-2 border-white/80 bg-white/95 backdrop-blur-sm p-8 shadow-2xl">
+                        <div className="flex items-center gap-3 mb-8">
+                            <div className="p-3 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl shadow-lg">
+                                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                                </svg>
+                            </div>
                             <div>
-                                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                <h2 className="text-2xl font-bold text-slate-900">Plan Settings</h2>
+                                <p className="text-sm text-slate-500">Customize your meal plan preferences</p>
+                            </div>
+                        </div>
+
+                        <div className="grid gap-8 md:grid-cols-2 mb-8">
+                            {/* Daily Budget */}
+                            <div className="space-y-3">
+                                <label className="block text-sm font-bold text-slate-700">
                                     Daily Budget ($)
                                 </label>
-                                <input
-                                    type="number"
-                                    min="1"
-                                    step="0.5"
-                                    value={dietBudget}
-                                    onChange={(e) => setDietBudget(parseFloat(e.target.value) || 0)}
-                                    className="w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-lg text-slate-900 font-medium focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100"
-                                />
-                                <p className="text-xs text-slate-500 mt-1">Set your daily food budget</p>
+                                <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                        <span className="text-slate-400 text-lg font-semibold">$</span>
+                                    </div>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        step="0.5"
+                                        value={dietBudget}
+                                        onChange={(e) => setDietBudget(parseFloat(e.target.value) || 0)}
+                                        className="w-full rounded-xl border-2 border-slate-200 bg-slate-50/50 pl-10 pr-4 py-3.5 text-lg text-slate-900 font-semibold focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 transition-all"
+                                    />
+                                </div>
+                                <p className="text-xs text-slate-500 flex items-center gap-1">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    Set your daily food budget
+                                </p>
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                            {/* Meal Preference */}
+                            <div className="space-y-3">
+                                <label className="block text-sm font-bold text-slate-700">
                                     Meal Preference
                                 </label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {(["Veg", "Non-Veg", "Balanced"] as const).map((pref) => (
+                                <div className="grid grid-cols-3 gap-3">
+                                    {([
+                                        { value: "Veg", icon: "🥗", color: "from-green-500 to-emerald-500" },
+                                        { value: "Non-Veg", icon: "🍗", color: "from-orange-500 to-red-500" },
+                                        { value: "Balanced", icon: "⚖️", color: "from-emerald-500 to-teal-500" }
+                                    ] as const).map((pref) => (
                                         <button
-                                            key={pref}
-                                            onClick={() => setDietPreference(pref)}
-                                            className={`py-3 px-4 rounded-xl font-semibold transition-all border-2 ${dietPreference === pref
-                                                    ? "bg-emerald-600 border-emerald-600 text-white shadow-lg"
-                                                    : "border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300"
+                                            key={pref.value}
+                                            onClick={() => setDietPreference(pref.value)}
+                                            className={`relative py-4 px-3 rounded-xl font-bold transition-all border-2 overflow-hidden group ${dietPreference === pref.value
+                                                ? `bg-gradient-to-br ${pref.color} border-transparent text-white shadow-lg scale-105`
+                                                : "border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
                                                 }`}
                                         >
-                                            {pref}
+                                            <div className="flex flex-col items-center gap-1">
+                                                <span className="text-xl">{pref.icon}</span>
+                                                <span className="text-xs">{pref.value}</span>
+                                            </div>
+                                            {dietPreference === pref.value && (
+                                                <div className="absolute top-1 right-1">
+                                                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                                    </svg>
+                                                </div>
+                                            )}
                                         </button>
                                     ))}
                                 </div>
@@ -113,27 +149,37 @@ export default function DietPlannerPage() {
                         <button
                             onClick={handleGenerateDietPlan}
                             disabled={dietLoading || dietBudget <= 0}
-                            className="w-full rounded-xl bg-emerald-600 px-6 py-4 text-lg font-bold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-4 text-lg font-bold text-white shadow-lg shadow-emerald-200 transition-all hover:shadow-xl hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-lg"
                         >
                             {dietLoading ? (
-                                <span className="flex items-center justify-center gap-2">
-                                    <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                                <span className="flex items-center justify-center gap-3">
+                                    <svg className="animate-spin h-6 w-6" fill="none" viewBox="0 0 24 24">
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
                                     Generating Your Meal Plan...
                                 </span>
                             ) : (
-                                "🍽️ Generate Meal Plan"
+                                <span className="flex items-center justify-center gap-2">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                    </svg>
+                                    Generate Meal Plan
+                                </span>
                             )}
                         </button>
 
                         {dietError && (
-                            <div className="mt-6 rounded-xl bg-red-50 border-2 border-red-200 p-4 flex items-center gap-3">
-                                <svg className="w-5 h-5 text-red-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                <p className="text-sm text-red-800 font-medium">{dietError}</p>
+                            <div className="mt-6 rounded-xl bg-gradient-to-r from-red-50 to-red-100 border-2 border-red-200 p-4 flex items-start gap-3 animate-in slide-in-from-top-2 duration-300">
+                                <div className="p-2 bg-red-200 rounded-lg">
+                                    <svg className="w-5 h-5 text-red-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-sm text-red-800 font-semibold mb-1">Error</p>
+                                    <p className="text-sm text-red-700">{dietError}</p>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -158,8 +204,8 @@ export default function DietPlannerPage() {
                                             <li key={i} className="flex items-start justify-between gap-2 bg-white/60 rounded-lg p-3">
                                                 <span className="text-sm font-medium text-slate-800 flex-1">{item.item}</span>
                                                 <span className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${item.source === 'Home'
-                                                        ? 'bg-blue-200 text-blue-800'
-                                                        : 'bg-amber-200 text-amber-800'
+                                                    ? 'bg-blue-200 text-blue-800'
+                                                    : 'bg-amber-200 text-amber-800'
                                                     }`}>
                                                     {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
                                                 </span>
@@ -183,8 +229,8 @@ export default function DietPlannerPage() {
                                             <li key={i} className="flex items-start justify-between gap-2 bg-white/60 rounded-lg p-3">
                                                 <span className="text-sm font-medium text-slate-800 flex-1">{item.item}</span>
                                                 <span className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${item.source === 'Home'
-                                                        ? 'bg-blue-200 text-blue-800'
-                                                        : 'bg-amber-200 text-amber-800'
+                                                    ? 'bg-blue-200 text-blue-800'
+                                                    : 'bg-amber-200 text-amber-800'
                                                     }`}>
                                                     {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
                                                 </span>
@@ -208,8 +254,8 @@ export default function DietPlannerPage() {
                                             <li key={i} className="flex items-start justify-between gap-2 bg-white/60 rounded-lg p-3">
                                                 <span className="text-sm font-medium text-slate-800 flex-1">{item.item}</span>
                                                 <span className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${item.source === 'Home'
-                                                        ? 'bg-blue-200 text-blue-800'
-                                                        : 'bg-amber-200 text-amber-800'
+                                                    ? 'bg-blue-200 text-blue-800'
+                                                    : 'bg-amber-200 text-amber-800'
                                                     }`}>
                                                     {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
                                                 </span>
@@ -292,10 +338,10 @@ export default function DietPlannerPage() {
                                                 <div className="w-full bg-slate-200 rounded-full h-2 mb-1">
                                                     <div
                                                         className={`h-2 rounded-full ${data.provided >= data.recommended
-                                                                ? 'bg-emerald-500'
-                                                                : data.provided >= data.recommended * 0.7
-                                                                    ? 'bg-yellow-500'
-                                                                    : 'bg-red-500'
+                                                            ? 'bg-emerald-500'
+                                                            : data.provided >= data.recommended * 0.7
+                                                                ? 'bg-yellow-500'
+                                                                : 'bg-red-500'
                                                             }`}
                                                         style={{ width: `${Math.min((data.provided / data.recommended) * 100, 100)}%` }}
                                                     ></div>
