@@ -5,7 +5,22 @@ import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/header";
 import { SiteFooter } from "@/components/footer";
 import { useAuth } from "@/contexts/auth-context";
-import { updateProfile, getFoodUsageLogs, type FoodUsageLog } from "@/lib/api";
+import {
+  updateProfile,
+  getFoodUsageLogs,
+  getUserInventory,
+  fetchResources,
+  type FoodUsageLog,
+  type UserInventoryItem,
+  type Resource,
+} from "@/lib/api";
+
+type BudgetPreferenceLevel = "low" | "medium" | "high" | "";
+
+type Recommendation = {
+  resource: Resource;
+  reason: string;
+};
 
 export default function ProfilePage() {
   const { user, loading: authLoading, logout, refreshUser } = useAuth();
@@ -14,7 +29,7 @@ export default function ProfilePage() {
   // Profile editing state
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState("");
-  const [budgetPreference, setBudgetPreference] = useState<"low" | "medium" | "high" | "">("");
+  const [budgetPreference, setBudgetPreference] = useState<BudgetPreferenceLevel>("");
   const [location, setLocation] = useState("");
   const [dietaryNeeds, setDietaryNeeds] = useState("");
   const [loading, setLoading] = useState(false);
@@ -25,6 +40,11 @@ export default function ProfilePage() {
   const [recentUsage, setRecentUsage] = useState<FoodUsageLog[]>([]);
   const [usageLoading, setUsageLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"overview" | "usage" | "settings">("overview");
+  const [userInventoryItems, setUserInventoryItems] = useState<UserInventoryItem[]>([]);
+  const [allResources, setAllResources] = useState<Resource[]>([]);
+  const [recommendedResources, setRecommendedResources] = useState<Recommendation[]>([]);
+  const [currentRecommendationIndex, setCurrentRecommendationIndex] = useState(0);
+  const [showRecommendationsModal, setShowRecommendationsModal] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -39,8 +59,37 @@ export default function ProfilePage() {
       setLocation(user.location || "");
       setDietaryNeeds(user.dietaryNeeds || "");
       loadRecentUsage();
+      loadUserInventoryItems();
+      loadResources();
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!allResources.length) {
+      setRecommendedResources([]);
+      return;
+    }
+
+    const recs = buildRecommendations({
+      resources: allResources,
+      inventoryItems: userInventoryItems,
+      usageLogs: recentUsage,
+      budgetPreference,
+    });
+
+    setRecommendedResources(recs);
+    setCurrentRecommendationIndex(0);
+  }, [allResources, userInventoryItems, recentUsage, budgetPreference]);
+
+  useEffect(() => {
+    if (recommendedResources.length <= 1) {
+      return;
+    }
+    const interval = setInterval(() => {
+      setCurrentRecommendationIndex((prev) => (prev + 1) % recommendedResources.length);
+    }, 6500);
+    return () => clearInterval(interval);
+  }, [recommendedResources]);
 
   const loadRecentUsage = async () => {
     setUsageLoading(true);
@@ -59,6 +108,24 @@ export default function ProfilePage() {
       console.error("Failed to load usage logs:", error);
     } finally {
       setUsageLoading(false);
+    }
+  };
+
+  const loadUserInventoryItems = async () => {
+    try {
+      const items = await getUserInventory();
+      setUserInventoryItems(items);
+    } catch (err) {
+      console.error("Failed to load user inventory for recommendations:", err);
+    }
+  };
+
+  const loadResources = async () => {
+    try {
+      const items = await fetchResources();
+      setAllResources(items);
+    } catch (err) {
+      console.error("Failed to load resources:", err);
     }
   };
 
@@ -94,6 +161,8 @@ export default function ProfilePage() {
   const totalItemsUsed = recentUsage.length;
   const totalQuantity = recentUsage.reduce((sum, log) => sum + log.quantity, 0);
   const categories = [...new Set(recentUsage.map(log => log.category))];
+
+  const currentRecommendation = recommendedResources[currentRecommendationIndex] || null;
 
   // Group by category for chart
   const categoryData = categories.map(cat => ({
@@ -150,6 +219,52 @@ export default function ProfilePage() {
               Logout
             </button>
           </div>
+
+          {currentRecommendation && (
+            <div
+              className="rounded-3xl border border-white/60 bg-white/90 p-6 shadow-lg transition hover:shadow-xl cursor-pointer"
+              onClick={() => setShowRecommendationsModal(true)}
+            >
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.4em] text-emerald-500">
+                    Personalized Advice
+                  </p>
+                  <h2 className="mt-2 text-2xl font-bold text-slate-900">{currentRecommendation.resource.title}</h2>
+                  {currentRecommendation.resource.description && (
+                    <p className="mt-2 text-sm text-slate-600">
+                      {currentRecommendation.resource.description}
+                    </p>
+                  )}
+                  <p className="mt-3 text-xs font-semibold text-emerald-700">
+                    {currentRecommendation.reason}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 w-full md:w-auto">
+                  {currentRecommendation.resource.url && (
+                    <a
+                      href={currentRecommendation.resource.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center justify-center rounded-full border border-emerald-300 px-5 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-600 hover:text-white"
+                    >
+                      Open Resource
+                    </a>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowRecommendationsModal(true);
+                    }}
+                    className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    See all personalized tips
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="rounded-2xl bg-red-100 border border-red-300 p-4 flex items-center gap-3">
@@ -498,6 +613,124 @@ export default function ProfilePage() {
 
         <SiteFooter />
       </div>
+
+      {showRecommendationsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+          <div className="w-full max-w-3xl rounded-3xl bg-white p-8 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.4em] text-emerald-500">
+                  Personalized Resources
+                </p>
+                <h3 className="text-2xl font-bold text-slate-900">Tips chosen for you</h3>
+              </div>
+              <button
+                onClick={() => setShowRecommendationsModal(false)}
+                className="rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {recommendedResources.length === 0 ? (
+              <p className="text-sm text-slate-500">No personalized tips available yet. Log some inventory or usage to unlock recommendations.</p>
+            ) : (
+              <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-2">
+                {recommendedResources.map((rec) => (
+                  <div key={rec.resource.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-5">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                          {rec.resource.category} · {rec.resource.type}
+                        </p>
+                        <h4 className="text-lg font-semibold text-slate-900">{rec.resource.title}</h4>
+                      </div>
+                      <span className="rounded-full bg-white px-4 py-1 text-xs font-semibold text-emerald-600">
+                        {rec.reason}
+                      </span>
+                    </div>
+                    {rec.resource.description && (
+                      <p className="mt-2 text-sm text-slate-600">{rec.resource.description}</p>
+                    )}
+                    <div className="mt-3 flex items-center justify-between">
+                      <p className="text-xs text-slate-500">
+                        Added to Global Codex
+                      </p>
+                      {rec.resource.url && (
+                        <a
+                          href={rec.resource.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-semibold text-emerald-600 hover:text-emerald-700"
+                        >
+                          Open resource →
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function buildRecommendations({
+  resources,
+  inventoryItems,
+  usageLogs,
+  budgetPreference,
+}: {
+  resources: Resource[];
+  inventoryItems: UserInventoryItem[];
+  usageLogs: FoodUsageLog[];
+  budgetPreference: BudgetPreferenceLevel;
+}): Recommendation[] {
+  if (!resources.length) {
+    return [];
+  }
+
+  const inventoryCategories = inventoryItems.map((item) => (item.category || "").toLowerCase());
+  const usageCategories = usageLogs.map((log) => (log.category || "").toLowerCase());
+  const hasCategory = (keyword: string) =>
+    inventoryCategories.some((cat) => cat.includes(keyword)) || usageCategories.some((cat) => cat.includes(keyword));
+
+  const matches: { category: Resource["category"]; reason: string }[] = [];
+
+  if (hasCategory("dairy")) {
+    matches.push({ category: "storage_tips", reason: "Related to: Dairy category" });
+  }
+  if (hasCategory("meat") || hasCategory("protein")) {
+    matches.push({ category: "storage_tips", reason: "Related to: Protein category" });
+  }
+  if (hasCategory("fruit") || hasCategory("vegetable")) {
+    matches.push({ category: "waste_reduction", reason: "Related to: Produce usage" });
+  }
+  if (usageLogs.length >= 5 || inventoryItems.length >= 5) {
+    matches.push({ category: "meal_planning", reason: "Related to: Weekly cooking activity" });
+  }
+  if (budgetPreference === "low") {
+    matches.push({ category: "budget", reason: "Related to: Budget preference (low)" });
+  }
+  matches.push({ category: "nutrition", reason: "Related to: General nutrition" });
+
+  const usedResourceIds = new Set<number>();
+  const recommendations: Recommendation[] = [];
+
+  for (const match of matches) {
+    const resource = resources.find(
+      (res) => res.category === match.category && !usedResourceIds.has(res.id),
+    );
+    if (resource) {
+      recommendations.push({ resource, reason: match.reason });
+      usedResourceIds.add(resource.id);
+    }
+  }
+
+  return recommendations;
 }

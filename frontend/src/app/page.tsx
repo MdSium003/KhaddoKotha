@@ -7,6 +7,7 @@ import { CTASection } from "@/components/cta-section";
 import { SiteFooter } from "@/components/footer";
 import { FadeIn } from "@/components/fade-in";
 import { missionCopy, features, howItWorks } from "@/lib/content";
+import { ResourceTickers } from "@/components/resource-tickers";
 
 export default async function Home() {
   return (
@@ -23,19 +24,23 @@ export default async function Home() {
       {/* Container for other sections */}
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-10">
         <main className="flex flex-1 flex-col gap-12">
-          <FadeIn delay={0.2}>
+          <FadeIn delay={0.18}>
+            <ResourceTickers />
+          </FadeIn>
+
+          <FadeIn delay={0.22}>
             <FeaturesSection features={features} />
           </FadeIn>
 
-          <FadeIn delay={0.3}>
+          <FadeIn delay={0.32}>
             <HowItWorksSection steps={howItWorks} />
           </FadeIn>
 
-          <FadeIn delay={0.4}>
+          <FadeIn delay={0.42}>
             <TestimonialsSection />
           </FadeIn>
 
-          <FadeIn delay={0.5}>
+          <FadeIn delay={0.52}>
             <CTASection />
           </FadeIn>
         </main>
