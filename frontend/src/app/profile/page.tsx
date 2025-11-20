@@ -39,16 +39,16 @@ export default function ProfilePage() {
   const [foodUsageLogs, setFoodUsageLogs] = useState<FoodUsageLog[]>([]);
   const [inventoryItems, setInventoryItems] = useState<FoodInventoryItem[]>([]);
   const [usageDate, setUsageDate] = useState(new Date().toISOString().split('T')[0]);
-  
+
   // Manual entry state
   const [manualEntries, setManualEntries] = useState<FoodUsageLogData[]>([
     { itemName: "", quantity: 1, category: "" },
   ]);
-  
+
   // Dropdown selection state
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<number | "">("");
   const [selectedQuantity, setSelectedQuantity] = useState(1);
-  
+
   // CSV upload state
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvLoading, setCsvLoading] = useState(false);
@@ -57,18 +57,18 @@ export default function ProfilePage() {
   const [showUserInventory, setShowUserInventory] = useState(false);
   const [userInventoryMethod, setUserInventoryMethod] = useState<"csv" | "manual" | "dropdown">("manual");
   const [userInventoryItems, setUserInventoryItems] = useState<UserInventoryItem[]>([]);
-  
+
   // Manual entry state for inventory
   const [manualInventoryEntries, setManualInventoryEntries] = useState<UserInventoryItemData[]>([
     { itemName: "", quantity: 1, category: "", purchaseDate: "", expirationDate: "", notes: "" },
   ]);
-  
+
   // Dropdown selection state for inventory
   const [selectedInventoryItemId, setSelectedInventoryItemId] = useState<number | "">("");
   const [selectedInventoryQuantity, setSelectedInventoryQuantity] = useState(1);
   const [selectedPurchaseDate, setSelectedPurchaseDate] = useState("");
   const [selectedExpirationDate, setSelectedExpirationDate] = useState("");
-  
+
   // CSV upload state for inventory
   const [inventoryCsvFile, setInventoryCsvFile] = useState<File | null>(null);
   const [inventoryCsvLoading, setInventoryCsvLoading] = useState(false);
@@ -503,7 +503,7 @@ export default function ProfilePage() {
   if (authLoading || !user) {
     return (
       <div className="min-h-screen bg-[#BCEBD7] text-slate-900 flex flex-col">
-        <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-10">
+        <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-10 pt-24">
           <SiteHeader />
           <main className="mt-10 flex flex-1 items-center justify-center">
             <div className="text-center">
@@ -520,7 +520,7 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-[#BCEBD7] text-slate-900 flex flex-col">
-      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-10">
+      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-10 pt-24">
         <SiteHeader />
 
         <main className="mt-10 flex flex-1 flex-col gap-8">
@@ -734,31 +734,28 @@ export default function ProfilePage() {
                   <div className="flex gap-3">
                     <button
                       onClick={() => setFoodUsageMethod("manual")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                        foodUsageMethod === "manual"
-                          ? "bg-emerald-600 text-white"
-                          : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
+                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${foodUsageMethod === "manual"
+                        ? "bg-emerald-600 text-white"
+                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
                     >
                       Manual Entry
                     </button>
                     <button
                       onClick={() => setFoodUsageMethod("dropdown")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                        foodUsageMethod === "dropdown"
-                          ? "bg-emerald-600 text-white"
-                          : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
+                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${foodUsageMethod === "dropdown"
+                        ? "bg-emerald-600 text-white"
+                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
                     >
                       From Inventory
                     </button>
                     <button
                       onClick={() => setFoodUsageMethod("csv")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                        foodUsageMethod === "csv"
-                          ? "bg-emerald-600 text-white"
-                          : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
+                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${foodUsageMethod === "csv"
+                        ? "bg-emerald-600 text-white"
+                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
                     >
                       CSV Upload
                     </button>
@@ -977,31 +974,28 @@ export default function ProfilePage() {
                   <div className="flex gap-3">
                     <button
                       onClick={() => setUserInventoryMethod("manual")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                        userInventoryMethod === "manual"
-                          ? "bg-emerald-600 text-white"
-                          : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
+                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${userInventoryMethod === "manual"
+                        ? "bg-emerald-600 text-white"
+                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
                     >
                       Manual Entry
                     </button>
                     <button
                       onClick={() => setUserInventoryMethod("dropdown")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                        userInventoryMethod === "dropdown"
-                          ? "bg-emerald-600 text-white"
-                          : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
+                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${userInventoryMethod === "dropdown"
+                        ? "bg-emerald-600 text-white"
+                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
                     >
                       From Inventory
                     </button>
                     <button
                       onClick={() => setUserInventoryMethod("csv")}
-                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                        userInventoryMethod === "csv"
-                          ? "bg-emerald-600 text-white"
-                          : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
+                      className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition ${userInventoryMethod === "csv"
+                        ? "bg-emerald-600 text-white"
+                        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
                     >
                       CSV Upload
                     </button>
@@ -1297,15 +1291,14 @@ export default function ProfilePage() {
                               : false;
                             const isExpiringSoon = item.expirationDate
                               ? new Date(item.expirationDate) <= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) &&
-                                new Date(item.expirationDate) >= new Date()
+                              new Date(item.expirationDate) >= new Date()
                               : false;
 
                             return (
                               <tr
                                 key={item.id}
-                                className={`hover:bg-slate-50 ${
-                                  isExpired ? "bg-red-50" : isExpiringSoon ? "bg-yellow-50" : ""
-                                }`}
+                                className={`hover:bg-slate-50 ${isExpired ? "bg-red-50" : isExpiringSoon ? "bg-yellow-50" : ""
+                                  }`}
                               >
                                 <td className="px-4 py-2 text-sm font-medium text-slate-900">
                                   {item.itemName}

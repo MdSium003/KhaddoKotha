@@ -48,7 +48,7 @@ export default function WasteToAssetPage() {
 
     return (
         <div className="min-h-screen bg-white text-slate-900 font-sans">
-            <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 sm:px-6 lg:px-8">
+            <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 sm:px-6 lg:px-8 pt-24">
                 <SiteHeader />
 
                 <main className="flex-1 py-12">
@@ -77,8 +77,8 @@ export default function WasteToAssetPage() {
                                                 key={item.id}
                                                 onClick={() => handleGenerateSuggestions(item.itemName)}
                                                 className={`p-4 rounded-xl cursor-pointer transition-all border ${selectedItem === item.itemName
-                                                        ? 'bg-white border-[#714B67] shadow-md ring-1 ring-[#714B67]'
-                                                        : 'bg-white border-slate-200 hover:border-[#714B67]/50 hover:shadow-sm'
+                                                    ? 'bg-white border-[#714B67] shadow-md ring-1 ring-[#714B67]'
+                                                    : 'bg-white border-slate-200 hover:border-[#714B67]/50 hover:shadow-sm'
                                                     }`}
                                             >
                                                 <div className="flex justify-between items-center">

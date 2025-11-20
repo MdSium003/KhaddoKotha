@@ -1,40 +1,46 @@
 import { SiteHeader } from "@/components/header";
 import { HeroSection } from "@/components/hero";
-import { ModulesGrid } from "@/components/modules-grid";
+import { FeaturesSection } from "@/components/features";
+import { HowItWorksSection } from "@/components/how-it-works";
+import { TestimonialsSection } from "@/components/testimonials";
+import { CTASection } from "@/components/cta-section";
 import { SiteFooter } from "@/components/footer";
-import { ReviewsSection } from "@/components/reviews-scrolling";
 import { FadeIn } from "@/components/fade-in";
-import { fetchHealth, fetchTemplates } from "@/lib/api";
-import { missionCopy } from "@/lib/content";
+import { missionCopy, features, howItWorks } from "@/lib/content";
 
 export default async function Home() {
-  const [health, templates] = await Promise.all([
-    fetchHealth().catch(() => ({ ok: false })),
-    fetchTemplates().catch(() => []),
-  ]);
-
   return (
     <div className="min-h-screen bg-[#BCEBD7] text-slate-900">
-      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-10">
-        <FadeIn>
-          <SiteHeader />
-        </FadeIn>
+      <SiteHeader />
 
-        <main className="mt-10 flex flex-1 flex-col gap-10">
+      {/* Full-width Hero Section */}
+      <div className="pt-24">
+        <FadeIn delay={0.1}>
+          <HeroSection mission={missionCopy} />
+        </FadeIn>
+      </div>
+
+      {/* Container for other sections */}
+      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-10">
+        <main className="flex flex-1 flex-col gap-12">
           <FadeIn delay={0.2}>
-            <HeroSection mission={missionCopy} />
+            <FeaturesSection features={features} />
+          </FadeIn>
+
+          <FadeIn delay={0.3}>
+            <HowItWorksSection steps={howItWorks} />
           </FadeIn>
 
           <FadeIn delay={0.4}>
-            <ReviewsSection />
+            <TestimonialsSection />
           </FadeIn>
 
-          <FadeIn delay={0.6}>
-            <ModulesGrid templates={templates} />
+          <FadeIn delay={0.5}>
+            <CTASection />
           </FadeIn>
         </main>
 
-        <FadeIn delay={0.8}>
+        <FadeIn delay={0.6}>
           <SiteFooter />
         </FadeIn>
       </div>
