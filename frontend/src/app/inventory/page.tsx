@@ -11,9 +11,13 @@ import {
   bulkCreateUserInventoryItems,
   deleteUserInventoryItem,
   fetchFoodInventory,
+  uploadImage,
+  extractTextFromImage,
   type UserInventoryItem,
   type UserInventoryItemData,
   type FoodInventoryItem,
+  type OCRResponse,
+  type ExtractedItem,
 } from "@/lib/api";
 
 export default function InventoryPage() {
@@ -22,7 +26,7 @@ export default function InventoryPage() {
 
   const [userInventoryItems, setUserInventoryItems] = useState<UserInventoryItem[]>([]);
   const [inventoryItems, setInventoryItems] = useState<FoodInventoryItem[]>([]);
-  const [inputMethod, setInputMethod] = useState<"manual" | "codex" | "csv">("manual");
+  const [inputMethod, setInputMethod] = useState<"manual" | "codex" | "csv" | "ocr">("manual");
   const [loading, setLoading] = useState(false);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [error, setError] = useState("");
@@ -30,8 +34,10 @@ export default function InventoryPage() {
 
   // Manual entry state
   const [manualEntries, setManualEntries] = useState<UserInventoryItemData[]>([
-    { itemName: "", quantity: 1, category: "", purchaseDate: "", expirationDate: "", notes: "" },
+    { itemName: "", quantity: 1, category: "", purchaseDate: "", expirationDate: "", notes: "", imageUrl: "" },
   ]);
+  const [manualEntryImages, setManualEntryImages] = useState<(File | null)[]>([null]);
+  const [uploadingImages, setUploadingImages] = useState<boolean[]>([false]);
 
   // Global Food Codex modal state
   const [selectedFoodItem, setSelectedFoodItem] = useState<FoodInventoryItem | null>(null);
@@ -40,6 +46,14 @@ export default function InventoryPage() {
   const [modalPurchaseDate, setModalPurchaseDate] = useState("");
   const [modalExpirationDate, setModalExpirationDate] = useState("");
   const [modalNotes, setModalNotes] = useState("");
+
+  // OCR state
+  const [ocrFile, setOcrFile] = useState<File | null>(null);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrResult, setOcrResult] = useState<OCRResponse | null>(null);
+  const [showOcrModal, setShowOcrModal] = useState(false);
+  const [ocrExtractedItems, setOcrExtractedItems] = useState<UserInventoryItemData[]>([]);
+  const [ocrProgress, setOcrProgress] = useState(0);
 
   // CSV upload state
   const [csvFile, setCsvFile] = useState<File | null>(null);
@@ -84,11 +98,13 @@ export default function InventoryPage() {
 
   // Manual Entry Functions
   const handleAddManualEntry = () => {
-    setManualEntries([...manualEntries, { itemName: "", quantity: 1, category: "", purchaseDate: "", expirationDate: "", notes: "" }]);
+    setManualEntries([...manualEntries, { itemName: "", quantity: 1, category: "", purchaseDate: "", expirationDate: "", notes: "", imageUrl: "" }]);
+    setManualEntryImages([...manualEntryImages, null]);
   };
 
   const handleRemoveManualEntry = (index: number) => {
     setManualEntries(manualEntries.filter((_, i) => i !== index));
+    setManualEntryImages(manualEntryImages.filter((_, i) => i !== index));
   };
 
   const handleManualEntryChange = (index: number, field: keyof UserInventoryItemData, value: string | number) => {
@@ -97,15 +113,63 @@ export default function InventoryPage() {
     setManualEntries(updated);
   };
 
+  const handleImageChange = async (index: number, file: File | null) => {
+    if (!file) {
+      const updatedImages = [...manualEntryImages];
+      updatedImages[index] = null;
+      setManualEntryImages(updatedImages);
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.match(/^image\/(jpeg|jpg|png)$/)) {
+      setError("Please upload a JPG or PNG image");
+      return;
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image size must be less than 5MB");
+      return;
+    }
+
+    const updatedUploading = [...uploadingImages];
+    updatedUploading[index] = true;
+    setUploadingImages(updatedUploading);
+
+    try {
+      const imageUrl = await uploadImage(file);
+      const updatedEntries = [...manualEntries];
+      updatedEntries[index] = { ...updatedEntries[index], imageUrl };
+      setManualEntries(updatedEntries);
+
+      const updatedImages = [...manualEntryImages];
+      updatedImages[index] = file;
+      setManualEntryImages(updatedImages);
+    } catch (error: any) {
+      setError(error.message || "Failed to upload image");
+    } finally {
+      const updatedUploading = [...uploadingImages];
+      updatedUploading[index] = false;
+      setUploadingImages(updatedUploading);
+    }
+  };
+
   const handleSubmitManualEntries = async () => {
     setLoading(true);
     setError("");
     setSuccess("");
 
     try {
-      await bulkCreateUserInventoryItems(manualEntries);
+      // Filter out empty imageUrl fields
+      const entriesToSubmit = manualEntries.map((entry) => ({
+        ...entry,
+        imageUrl: entry.imageUrl || undefined,
+      }));
+      await bulkCreateUserInventoryItems(entriesToSubmit);
       setSuccess(`${manualEntries.length} item(s) added successfully!`);
-      setManualEntries([{ itemName: "", quantity: 1, category: "", purchaseDate: "", expirationDate: "", notes: "" }]);
+      setManualEntries([{ itemName: "", quantity: 1, category: "", purchaseDate: "", expirationDate: "", notes: "", imageUrl: "" }]);
+      setManualEntryImages([null]);
       await loadUserInventory();
     } catch (error: any) {
       setError(error.message || "Failed to add items");
@@ -164,6 +228,7 @@ export default function InventoryPage() {
         purchaseDate: modalPurchaseDate || undefined,
         expirationDate: modalExpirationDate || undefined,
         notes: modalNotes || undefined,
+        imageUrl: undefined,
       };
 
       await createUserInventoryItem(newItem);
@@ -237,6 +302,170 @@ export default function InventoryPage() {
     }
   };
 
+  // OCR Functions
+  const handleOcrExtract = async () => {
+    if (!ocrFile) {
+      setError("Please select an image file");
+      return;
+    }
+
+    setOcrLoading(true);
+    setError("");
+    setOcrProgress(0);
+
+    try {
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setOcrProgress((prev) => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return prev;
+          }
+          return prev + 10;
+        });
+      }, 200);
+
+      const result = await extractTextFromImage(ocrFile);
+      clearInterval(progressInterval);
+      setOcrProgress(100);
+      setOcrResult(result);
+
+      // Process extracted data into inventory items
+      const items: UserInventoryItemData[] = [];
+
+      // Helper function to parse date strings (handle various formats)
+      const parseDate = (dateStr: string | undefined): string | undefined => {
+        if (!dateStr) return undefined;
+
+        // Try to parse various date formats
+        // Formats: MM/DD/YYYY, DD-MM-YYYY, YYYY-MM-DD, etc.
+        const dateFormats = [
+          /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/, // MM/DD/YYYY or DD-MM-YY
+        ];
+
+        for (const format of dateFormats) {
+          const match = dateStr.match(format);
+          if (match) {
+            const [, part1, part2, part3] = match;
+            let month, day, year;
+
+            // Try to determine format (assume MM/DD/YYYY for US dates, DD-MM-YYYY for EU)
+            if (parseInt(part1) > 12) {
+              // EU format: DD-MM-YYYY
+              day = part1.padStart(2, '0');
+              month = part2.padStart(2, '0');
+              year = part3.length === 2 ? `20${part3}` : part3;
+            } else {
+              // US format: MM/DD/YYYY
+              month = part1.padStart(2, '0');
+              day = part2.padStart(2, '0');
+              year = part3.length === 2 ? `20${part3}` : part3;
+            }
+
+            // Validate date
+            const parsedDate = new Date(`${year}-${month}-${day}`);
+            if (!isNaN(parsedDate.getTime())) {
+              return `${year}-${month}-${day}`;
+            }
+          }
+        }
+
+        return undefined;
+      };
+
+      // Match extracted items with quantities and dates
+      for (const extractedItem of result.extractedItems) {
+        // Find matching quantity (try to match by position or use first available)
+        let quantity = extractedItem.quantity || 1;
+
+        if (!extractedItem.quantity && result.extractedQuantities.length > 0) {
+          // If we have quantities but not on the item, try to use the first one 
+          // (or ideally match by index if we had that info, but for now this preserves existing behavior for fallback)
+          quantity = parseFloat(result.extractedQuantities[0].value) || 1;
+        }
+
+        // Find expiration date (prioritize expiration dates)
+        const expirationDateStr = result.extractedDates.find(d => d.type === "expiration")?.value
+          || result.extractedDates.find(d => d.type === "unknown")?.value
+          || undefined;
+        const expirationDate = parseDate(expirationDateStr);
+
+        // Find purchase date
+        const purchaseDateStr = result.extractedDates.find(d => d.type === "purchase")?.value
+          || undefined;
+        const purchaseDate = parseDate(purchaseDateStr);
+
+        // Try to determine category from item name
+        const lowerName = extractedItem.name.toLowerCase();
+        let category = "other";
+        if (lowerName.includes("milk") || lowerName.includes("cheese") || lowerName.includes("yogurt") || lowerName.includes("dairy")) {
+          category = "dairy";
+        } else if (lowerName.includes("apple") || lowerName.includes("banana") || lowerName.includes("orange") || lowerName.includes("fruit")) {
+          category = "fruits";
+        } else if (lowerName.includes("tomato") || lowerName.includes("carrot") || lowerName.includes("potato") || lowerName.includes("vegetable")) {
+          category = "vegetables";
+        } else if (lowerName.includes("bread") || lowerName.includes("rice") || lowerName.includes("pasta") || lowerName.includes("grain")) {
+          category = "grains";
+        } else if (lowerName.includes("chicken") || lowerName.includes("beef") || lowerName.includes("pork") || lowerName.includes("fish") || lowerName.includes("meat")) {
+          category = "meat";
+        }
+
+        items.push({
+          itemName: extractedItem.name,
+          quantity,
+          category,
+          purchaseDate,
+          expirationDate,
+          notes: `Extracted from image via OCR`,
+        });
+      }
+
+      setOcrExtractedItems(items);
+      setShowOcrModal(true);
+      setOcrProgress(0);
+    } catch (error: any) {
+      setError(error.message || "Failed to extract text from image");
+      setOcrProgress(0);
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
+  const handleOcrItemsChange = (index: number, field: keyof UserInventoryItemData, value: string | number) => {
+    const updated = [...ocrExtractedItems];
+    updated[index] = { ...updated[index], [field]: value };
+    setOcrExtractedItems(updated);
+  };
+
+  const handleOcrRemoveItem = (index: number) => {
+    setOcrExtractedItems(ocrExtractedItems.filter((_, i) => i !== index));
+  };
+
+  const handleAddOcrItems = async () => {
+    if (ocrExtractedItems.length === 0) {
+      setError("No items to add");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      await bulkCreateUserInventoryItems(ocrExtractedItems);
+      setSuccess(`${ocrExtractedItems.length} item(s) added from OCR!`);
+      setShowOcrModal(false);
+      setOcrFile(null);
+      setOcrResult(null);
+      setOcrExtractedItems([]);
+      await loadUserInventory();
+    } catch (error: any) {
+      setError(error.message || "Failed to add items");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[#BCEBD7] flex items-center justify-center">
@@ -278,7 +507,7 @@ export default function InventoryPage() {
               <h2 className="text-2xl font-bold text-slate-900 mb-6">Add Items</h2>
 
               {/* Input Method Tabs */}
-              <div className="flex gap-2 mb-6">
+              <div className="flex gap-2 mb-6 flex-wrap">
                 <button
                   onClick={() => setInputMethod("manual")}
                   className={`flex-1 py-2 px-4 rounded-lg font-semibold transition-all ${inputMethod === "manual"
@@ -305,6 +534,15 @@ export default function InventoryPage() {
                     }`}
                 >
                   CSV Upload
+                </button>
+                <button
+                  onClick={() => setInputMethod("ocr")}
+                  className={`flex-1 py-2 px-4 rounded-lg font-semibold transition-all ${inputMethod === "ocr"
+                    ? "bg-emerald-600 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                >
+                  📷 OCR Scan
                 </button>
               </div>
 
@@ -379,6 +617,34 @@ export default function InventoryPage() {
                         onChange={(e) => handleManualEntryChange(index, "notes", e.target.value)}
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                       />
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Upload Image (Receipt/Label) - JPG/PNG
+                        </label>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/jpg,image/png"
+                            onChange={(e) => handleImageChange(index, e.target.files?.[0] || null)}
+                            className="hidden"
+                            id={`image-upload-${index}`}
+                          />
+                          <label
+                            htmlFor={`image-upload-${index}`}
+                            className="flex-1 cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition"
+                          >
+                            {uploadingImages[index] ? "Uploading..." : manualEntryImages[index] ? manualEntryImages[index]!.name : "Choose Image"}
+                          </label>
+                          {entry.imageUrl && (
+                            <img
+                              src={entry.imageUrl}
+                              alt="Preview"
+                              className="w-12 h-12 object-cover rounded-lg border border-slate-300"
+                            />
+                          )}
+                        </div>
+                      </div>
                     </div>
                   ))}
 
@@ -472,6 +738,62 @@ export default function InventoryPage() {
                   </button>
                 </div>
               )}
+
+              {/* OCR Scan */}
+              {inputMethod === "ocr" && (
+                <div className="space-y-4">
+                  <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png"
+                      onChange={(e) => setOcrFile(e.target.files?.[0] || null)}
+                      className="hidden"
+                      id="ocr-upload"
+                    />
+                    <label htmlFor="ocr-upload" className="cursor-pointer">
+                      <div className="text-4xl mb-2">📷</div>
+                      <p className="text-slate-600 font-semibold mb-1">
+                        {ocrFile ? ocrFile.name : "Upload Receipt or Food Label"}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Upload a clear image of your receipt or food label. We'll extract items, quantities, and expiration dates automatically.
+                      </p>
+                      {ocrFile && (
+                        <div className="mt-4">
+                          <img
+                            src={URL.createObjectURL(ocrFile)}
+                            alt="Preview"
+                            className="max-w-full max-h-48 mx-auto rounded-lg border border-slate-300"
+                          />
+                        </div>
+                      )}
+                    </label>
+                  </div>
+
+                  {ocrLoading && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm text-slate-600">
+                        <span>Extracting text from image...</span>
+                        <span>{Math.round(ocrProgress)}%</span>
+                      </div>
+                      <div className="w-full bg-slate-200 rounded-full h-2">
+                        <div
+                          className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${ocrProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleOcrExtract}
+                    disabled={!ocrFile || ocrLoading}
+                    className="w-full py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {ocrLoading ? "Scanning Image..." : "Extract with OCR"}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Current Inventory */}
@@ -517,6 +839,16 @@ export default function InventoryPage() {
                       {item.notes && (
                         <p className="text-xs text-slate-500 mt-2">{item.notes}</p>
                       )}
+
+                      {item.imageUrl && (
+                        <div className="mt-3">
+                          <img
+                            src={item.imageUrl}
+                            alt={item.itemName}
+                            className="w-full h-32 object-cover rounded-lg border border-slate-300"
+                          />
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -531,7 +863,7 @@ export default function InventoryPage() {
       {/* Modal for adding from Global Food Codex */}
       {showModal && selectedFoodItem && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-start mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-slate-900">{selectedFoodItem.item_name}</h2>
@@ -606,6 +938,129 @@ export default function InventoryPage() {
                 className="w-full py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50"
               >
                 {loading ? "Adding..." : "Add to My Inventory"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal for OCR extracted items confirmation */}
+      {showOcrModal && ocrResult && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-8 max-w-4xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Review Extracted Items</h2>
+                <p className="text-sm text-slate-600 mt-1">
+                  {ocrResult.summary} • Please review and edit the extracted data before adding to inventory.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowOcrModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {ocrExtractedItems.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-slate-600 mb-4">No items could be extracted from the image.</p>
+                <p className="text-sm text-slate-500 mb-4">Extracted text:</p>
+                <div className="bg-slate-50 p-4 rounded-lg text-left text-sm text-slate-600 max-h-40 overflow-y-auto">
+                  {ocrResult.fullText || "No text found"}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 mb-6">
+                {ocrExtractedItems.map((item, index) => (
+                  <div key={index} className="p-4 bg-slate-50 rounded-lg space-y-3 border border-slate-200">
+                    <div className="flex justify-between items-center">
+                      <h3 className="font-semibold text-slate-700">Item {index + 1}</h3>
+                      <button
+                        onClick={() => handleOcrRemoveItem(index)}
+                        className="text-red-500 hover:text-red-700 text-sm"
+                      >
+                        Remove
+                      </button>
+                    </div>
+
+                    <input
+                      type="text"
+                      placeholder="Item Name"
+                      value={item.itemName}
+                      onChange={(e) => handleOcrItemsChange(index, "itemName", e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="number"
+                        placeholder="Quantity"
+                        value={item.quantity}
+                        onChange={(e) => handleOcrItemsChange(index, "quantity", Number(e.target.value))}
+                        min="1"
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                      <select
+                        value={item.category}
+                        onChange={(e) => handleOcrItemsChange(index, "category", e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      >
+                        <option value="">Category</option>
+                        <option value="vegetables">Vegetables</option>
+                        <option value="fruits">Fruits</option>
+                        <option value="grains">Grains</option>
+                        <option value="dairy">Dairy</option>
+                        <option value="meat">Meat</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="date"
+                        placeholder="Purchase Date"
+                        value={item.purchaseDate || ""}
+                        onChange={(e) => handleOcrItemsChange(index, "purchaseDate", e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="date"
+                        placeholder="Expiration Date"
+                        value={item.expirationDate || ""}
+                        onChange={(e) => handleOcrItemsChange(index, "expirationDate", e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                    </div>
+
+                    <input
+                      type="text"
+                      placeholder="Notes (optional)"
+                      value={item.notes || ""}
+                      onChange={(e) => handleOcrItemsChange(index, "notes", e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowOcrModal(false)}
+                className="flex-1 py-3 border-2 border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddOcrItems}
+                disabled={loading || ocrExtractedItems.length === 0}
+                className="flex-1 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {loading ? "Adding..." : `Add ${ocrExtractedItems.length} Item(s)`}
               </button>
             </div>
           </div>

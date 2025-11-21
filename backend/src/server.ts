@@ -2,8 +2,12 @@ import "dotenv/config";
 
 import cors from "cors";
 import express from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { neon } from "@neondatabase/serverless";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import Tesseract from "tesseract.js";
 import { z } from "zod";
 import {
   signupSchema,
@@ -41,6 +45,42 @@ const app = express();
 const sql = neon(config.DATABASE_URL);
 const genAI = config.GEMINI_API_KEY ? new GoogleGenerativeAI(config.GEMINI_API_KEY) : null;
 console.log("Gemini API Key configured:", !!config.GEMINI_API_KEY);
+console.log("Tesseract OCR configured: Ready (No API key required - Free & Open Source)");
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, `image-${uniqueSuffix}${ext}`);
+  },
+});
+
+const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  // Accept only JPG and PNG files
+  if (file.mimetype === "image/jpeg" || file.mimetype === "image/jpg" || file.mimetype === "image/png") {
+    cb(null, true);
+  } else {
+    cb(new Error("Only JPG and PNG images are allowed"));
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+});
 
 // Initialize AI services
 const riskPredictor = new RiskPredictor(sql, genAI);
@@ -82,6 +122,9 @@ app.use(
 );
 
 app.use(express.json());
+
+// Serve uploaded images statically
+app.use("/uploads", express.static(uploadsDir));
 
 app.get("/api/health", async (_req, res) => {
   try {
@@ -452,6 +495,284 @@ app.put("/api/auth/profile", async (req, res) => {
   }
 });
 
+// Image upload endpoint
+app.post("/api/upload", upload.single("image"), async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: "No image file provided" });
+    }
+
+    // Return the URL path for the uploaded image
+    const imageUrl = `/uploads/${req.file.filename}`;
+    res.json({ imageUrl });
+  } catch (error) {
+    console.error("Image upload failed", error);
+    if (error instanceof multer.MulterError) {
+      if (error.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ message: "File size exceeds 5MB limit" });
+      }
+    }
+    res.status(500).json({ message: "Failed to upload image" });
+  }
+});
+
+// OCR endpoint for extracting text from images using Tesseract.js
+app.post("/api/ocr/extract", upload.single("image"), async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: "No image file provided" });
+    }
+
+    const imagePath = req.file.path;
+    let fullText = "";
+
+    try {
+      // Use Tesseract.js to extract text (completely free, no API key needed)
+      console.log("Starting OCR extraction with Tesseract...");
+
+      const { data: { text } } = await Tesseract.recognize(
+        imagePath,
+        'eng', // English language
+        {
+          logger: (info) => {
+            // Optional: Log progress
+            if (info.status === 'recognizing text') {
+              console.log(`OCR Progress: ${info.progress * 100}%`);
+            }
+          }
+        }
+      );
+
+      fullText = text || "";
+
+      console.log(`OCR extraction completed. Extracted ${fullText.length} characters.`);
+
+      // Parse the extracted text to find items, quantities, and dates
+      let extractedData;
+
+      if (genAI) {
+        try {
+          console.log("Attempting to parse OCR text with Gemini...");
+          extractedData = await parseTextWithGemini(fullText);
+        } catch (error) {
+          console.error("Gemini parsing failed, falling back to regex:", error);
+        }
+      }
+
+      if (!extractedData) {
+        extractedData = parseReceiptText(fullText);
+      }
+
+      res.json({
+        success: true,
+        fullText: fullText.substring(0, 1000), // Limit full text response
+        extractedItems: extractedData.items,
+        extractedQuantities: extractedData.quantities,
+        extractedDates: extractedData.dates,
+        summary: extractedData.summary,
+      });
+    } catch (error) {
+      console.error("OCR extraction failed", error);
+      throw error;
+    } finally {
+      // Optionally delete the file after processing (or keep it for the user)
+      // fs.unlinkSync(imagePath);
+    }
+  } catch (error) {
+    console.error("OCR extraction failed", error);
+    res.status(500).json({
+      message: error instanceof Error ? error.message : "Failed to extract text from image",
+    });
+  }
+});
+
+async function parseTextWithGemini(text: string): Promise<{
+  items: Array<{ name: string; quantity?: number; confidence: number }>;
+  quantities: Array<{ value: string; unit?: string; confidence: number }>;
+  dates: Array<{ type: "expiration" | "purchase" | "unknown"; value: string; confidence: number }>;
+  summary: string;
+}> {
+  if (!genAI) throw new Error("Gemini not configured");
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  const prompt = `
+    You are an OCR post-processor. Extract food items, quantities, and dates from the following text.
+    The text may contain noise. Look for patterns like "Item Name [Name] Quantity [Qty] Expiration [Date]" or standard receipt formats.
+    
+    Return a JSON object with this structure:
+    {
+      "items": [ { "name": "string", "quantity": number } ],
+      "dates": [ { "value": "string (YYYY-MM-DD or original format)", "type": "expiration" | "purchase" | "unknown" } ]
+    }
+    
+    Text:
+    ${text}
+  `;
+
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  const jsonText = response.text().replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+
+  const parsed = JSON.parse(jsonText);
+  const items = Array.isArray(parsed.items) ? parsed.items.map((i: any) => ({
+    name: i.name,
+    quantity: typeof i.quantity === 'number' ? i.quantity : 1,
+    confidence: 0.95
+  })) : [];
+
+  const dates = Array.isArray(parsed.dates) ? parsed.dates.map((d: any) => ({
+    type: d.type || "unknown",
+    value: d.value,
+    confidence: 0.95
+  })) : [];
+
+  return {
+    items,
+    quantities: [], // Gemini already applied quantities to items
+    dates,
+    summary: `Extracted ${items.length} items and ${dates.length} dates using Gemini AI`
+  };
+}
+
+// Helper function to parse receipt/food label text
+function parseReceiptText(text: string): {
+  items: Array<{ name: string; quantity?: number; confidence: number }>;
+  quantities: Array<{ value: string; unit?: string; confidence: number }>;
+  dates: Array<{ type: "expiration" | "purchase" | "unknown"; value: string; confidence: number }>;
+  summary: string;
+} {
+  const lines = text.split("\n").filter((line) => line.trim().length > 0);
+
+  const items: Array<{ name: string; quantity?: number; confidence: number }> = [];
+  const quantities: Array<{ value: string; unit?: string; confidence: number }> = [];
+  const dates: Array<{ type: "expiration" | "purchase" | "unknown"; value: string; confidence: number }> = [];
+
+  // Common food item keywords
+  const foodKeywords = [
+    "milk", "bread", "eggs", "chicken", "beef", "pork", "fish", "rice", "pasta",
+    "apple", "banana", "orange", "tomato", "potato", "onion", "carrot", "lettuce",
+    "cheese", "yogurt", "butter", "flour", "sugar", "salt", "pepper", "oil",
+    "cereal", "juice", "water", "coffee", "tea", "cookies", "crackers",
+  ];
+
+  // Date patterns
+  const datePatterns = [
+    /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/g, // MM/DD/YYYY, DD-MM-YY, etc.
+    /(exp|expiration|expires|use by|best before|sell by)[\s:]+(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/gi,
+    /(purchase|purchased|bought)[\s:]+(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/gi,
+  ];
+
+  // Quantity patterns
+  const quantityPatterns = [
+    /(\d+(?:\.\d+)?)\s*(kg|g|lb|oz|liter|l|ml|pack|pcs|pieces|units?|x)/gi,
+    /\b(\d+(?:\.\d+)?)\s*(kg|g|lb|oz|liter|l|ml|pack|pcs|pieces|units?)\b/gi,
+  ];
+
+  // Extract items (lines that contain food keywords)
+  // Extract dates
+  for (const line of lines) {
+    // Check for specific "Item Name ... Quantity ... Expiration ..." format
+    const customMatch = line.match(/Item Name\s+(.+?)\s+Quantity\s+(\d+(?:\.\d+)?)\s+Expiration\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})(?:\s+Notes\s+(.+?))?(?:\s+Checked\.\.)?/i);
+
+    if (customMatch) {
+      items.push({
+        name: (customMatch[1] || "").trim(),
+        quantity: parseFloat(customMatch[2] || "0"),
+        confidence: 0.95
+      });
+
+      if (customMatch[3]) {
+        dates.push({
+          type: "expiration",
+          value: customMatch[3],
+          confidence: 0.95
+        });
+      }
+      continue;
+    }
+
+    const lowerLine = line.toLowerCase();
+
+    // Check for expiration dates
+    if (/\b(exp|expiration|expires|use by|best before|sell by)\b/i.test(line)) {
+      const dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if (dateMatch) {
+        dates.push({
+          type: "expiration",
+          value: dateMatch[0],
+          confidence: 0.9,
+        });
+      }
+    }
+
+    // Check for purchase dates
+    if (/\b(purchase|purchased|bought|date)\b/i.test(lowerLine)) {
+      const dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if (dateMatch) {
+        dates.push({
+          type: "purchase",
+          value: dateMatch[0],
+          confidence: 0.8,
+        });
+      }
+    }
+
+    // Generic date matches
+    const dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if (dateMatch && dates.every((d) => d.value !== dateMatch[0])) {
+      dates.push({
+        type: "unknown",
+        value: dateMatch[0],
+        confidence: 0.5,
+      });
+    }
+  }
+
+  // Extract quantities
+  for (const line of lines) {
+    for (const pattern of quantityPatterns) {
+      const matches = [...line.matchAll(pattern)];
+      for (const match of matches) {
+        const value = match[1];
+        const unit = match[2]?.toLowerCase();
+        quantities.push({
+          value: value || "0",
+          unit,
+          confidence: 0.7,
+        });
+      }
+    }
+  }
+
+  // Remove duplicates
+  const uniqueItems = items.filter(
+    (item, index, self) => index === self.findIndex((t) => t.name.toLowerCase() === item.name.toLowerCase())
+  );
+
+  const uniqueDates = dates.filter(
+    (date, index, self) => index === self.findIndex((d) => d.value === date.value)
+  );
+
+  const summary = `Found ${uniqueItems.length} potential items, ${quantities.length} quantities, and ${uniqueDates.length} dates`;
+
+  return {
+    items: uniqueItems.slice(0, 20), // Limit to 20 items
+    quantities: quantities.slice(0, 10),
+    dates: uniqueDates.slice(0, 5),
+    summary,
+  };
+}
+
 // Food usage endpoints
 app.post("/api/food-usage", async (req, res) => {
   try {
@@ -469,6 +790,7 @@ app.post("/api/food-usage", async (req, res) => {
         quantity: z.coerce.number().positive(),
         category: z.string().min(1),
         usageDate: z.string().optional(),
+        imageUrl: z.union([z.string().url(), z.literal("")]).optional(),
       })
       .parse(req.body);
 
@@ -477,9 +799,9 @@ app.post("/api/food-usage", async (req, res) => {
       : new Date();
 
     const [log] = await sql`
-      INSERT INTO food_usage_logs (user_id, item_name, quantity, category, usage_date)
-      VALUES (${decoded.userId}, ${body.itemName}, ${body.quantity}, ${body.category}, ${usageDate.toISOString().split('T')[0]})
-      RETURNING id, item_name, quantity, category, usage_date, created_at
+      INSERT INTO food_usage_logs(user_id, item_name, quantity, category, usage_date, image_url)
+  VALUES(${decoded.userId}, ${body.itemName}, ${body.quantity}, ${body.category}, ${usageDate.toISOString().split('T')[0]}, ${body.imageUrl || null})
+      RETURNING id, item_name, quantity, category, usage_date, image_url, created_at
     `;
 
     res.status(201).json({
@@ -490,6 +812,7 @@ app.post("/api/food-usage", async (req, res) => {
         quantity: Number(log.quantity),
         category: log.category,
         usageDate: log.usage_date,
+        imageUrl: log.image_url || undefined,
         createdAt: log.created_at,
       },
     });
@@ -520,6 +843,7 @@ app.post("/api/food-usage/bulk", async (req, res) => {
             quantity: z.coerce.number().positive(),
             category: z.string().min(1),
             usageDate: z.string().optional(),
+            imageUrl: z.union([z.string().url(), z.literal("")]).optional(),
           })
         ),
       })
@@ -534,20 +858,21 @@ app.post("/api/food-usage/bulk", async (req, res) => {
     for (const log of body.logs) {
       try {
         const [inserted] = await sql`
-          INSERT INTO food_usage_logs (user_id, item_name, quantity, category, usage_date)
-          VALUES (${decoded.userId}, ${log.itemName}, ${log.quantity}, ${log.category}, ${dateStr})
-          RETURNING id, item_name, quantity, category, usage_date, created_at
-        `;
+          INSERT INTO food_usage_logs(user_id, item_name, quantity, category, usage_date, image_url)
+  VALUES(${decoded.userId}, ${log.itemName}, ${log.quantity}, ${log.category}, ${dateStr}, ${log.imageUrl || null})
+          RETURNING id, item_name, quantity, category, usage_date, image_url, created_at
+    `;
         insertedLogs.push({
           id: inserted.id,
           itemName: inserted.item_name,
           quantity: Number(inserted.quantity),
           category: inserted.category,
           usageDate: inserted.usage_date,
+          imageUrl: inserted.image_url || undefined,
           createdAt: inserted.created_at,
         });
       } catch (err) {
-        console.error(`Failed to insert log for ${log.itemName}:`, err);
+        console.error(`Failed to insert log for ${log.itemName}: `, err);
       }
     }
 
@@ -579,7 +904,7 @@ app.get("/api/food-usage", async (req, res) => {
     const dateStr = dateFilter.toISOString().split('T')[0];
 
     const logs = await sql`
-      SELECT id, item_name, quantity, category, usage_date, created_at
+      SELECT id, item_name, quantity, category, usage_date, image_url, created_at
       FROM food_usage_logs
       WHERE user_id = ${decoded.userId}
         AND usage_date = ${dateStr}
@@ -593,6 +918,7 @@ app.get("/api/food-usage", async (req, res) => {
         quantity: Number(log.quantity),
         category: log.category,
         usageDate: log.usage_date,
+        imageUrl: log.image_url || undefined,
         createdAt: log.created_at,
       })),
     });
@@ -1022,7 +1348,7 @@ app.get("/api/user-inventory", async (req, res) => {
     const decoded = verifyToken(token);
 
     const items = await sql`
-      SELECT id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+      SELECT id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
       FROM user_inventory
       WHERE user_id = ${decoded.userId}
       ORDER BY expiration_date ASC NULLS LAST, item_name ASC
@@ -1037,6 +1363,7 @@ app.get("/api/user-inventory", async (req, res) => {
         purchaseDate: item.purchase_date,
         expirationDate: item.expiration_date,
         notes: item.notes,
+        imageUrl: item.image_url || undefined,
         createdAt: item.created_at,
         updatedAt: item.updated_at,
       })),
@@ -1065,25 +1392,49 @@ app.post("/api/user-inventory", async (req, res) => {
         purchaseDate: z.string().optional(),
         expirationDate: z.string().optional(),
         notes: z.string().optional(),
+        imageUrl: z.union([z.string().url(), z.literal("")]).optional(),
       })
       .parse(req.body);
 
-    const [item] = await sql`
-      INSERT INTO user_inventory (user_id, item_name, quantity, category, purchase_date, expiration_date, notes)
-      VALUES (
-        ${decoded.userId},
-        ${body.itemName},
-        ${body.quantity},
-        ${body.category},
-        ${body.purchaseDate || null},
-        ${body.expirationDate || null},
-        ${body.notes || null}
-      )
-      RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+    // Check if item already exists
+    const existingItems = await sql`
+      SELECT id, quantity FROM user_inventory 
+      WHERE user_id = ${decoded.userId} 
+      AND LOWER(item_name) = LOWER(${body.itemName})
+      AND (expiration_date = ${body.expirationDate || null} OR (expiration_date IS NULL AND ${body.expirationDate || null}::date IS NULL))
     `;
 
+    let item;
+
+    if (existingItems.length > 0) {
+      const existingItem = existingItems[0];
+      const newQuantity = Number(existingItem.quantity) + body.quantity;
+
+      [item] = await sql`
+        UPDATE user_inventory 
+        SET quantity = ${newQuantity}, updated_at = NOW()
+        WHERE id = ${existingItem.id}
+        RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
+      `;
+    } else {
+      [item] = await sql`
+        INSERT INTO user_inventory(user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
+        VALUES(
+          ${decoded.userId},
+          ${body.itemName},
+          ${body.quantity},
+          ${body.category},
+          ${body.purchaseDate || null},
+          ${body.expirationDate || null},
+          ${body.notes || null},
+          ${body.imageUrl || null}
+        )
+        RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
+      `;
+    }
+
     res.status(201).json({
-      message: "Item added to inventory successfully",
+      message: existingItems.length > 0 ? "Item quantity updated successfully" : "Item added to inventory successfully",
       item: {
         id: item.id,
         itemName: item.item_name,
@@ -1092,6 +1443,7 @@ app.post("/api/user-inventory", async (req, res) => {
         purchaseDate: item.purchase_date,
         expirationDate: item.expiration_date,
         notes: item.notes,
+        imageUrl: item.image_url || undefined,
         createdAt: item.created_at,
         updatedAt: item.updated_at,
       },
@@ -1125,6 +1477,7 @@ app.post("/api/user-inventory/bulk", async (req, res) => {
             purchaseDate: z.string().optional(),
             expirationDate: z.string().optional(),
             notes: z.string().optional(),
+            imageUrl: z.union([z.string().url(), z.literal("")]).optional(),
           })
         ),
       })
@@ -1133,19 +1486,43 @@ app.post("/api/user-inventory/bulk", async (req, res) => {
     const insertedItems = [];
     for (const item of body.items) {
       try {
-        const [inserted] = await sql`
-          INSERT INTO user_inventory (user_id, item_name, quantity, category, purchase_date, expiration_date, notes)
-          VALUES (
-            ${decoded.userId},
-            ${item.itemName},
-            ${item.quantity},
-            ${item.category},
-            ${item.purchaseDate || null},
-            ${item.expirationDate || null},
-            ${item.notes || null}
-          )
-          RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+        // Check if item already exists
+        const existingItems = await sql`
+          SELECT id, quantity FROM user_inventory 
+          WHERE user_id = ${decoded.userId} 
+          AND LOWER(item_name) = LOWER(${item.itemName})
+          AND (expiration_date = ${item.expirationDate || null} OR (expiration_date IS NULL AND ${item.expirationDate || null}::date IS NULL))
         `;
+
+        let inserted;
+
+        if (existingItems.length > 0) {
+          const existingItem = existingItems[0];
+          const newQuantity = Number(existingItem.quantity) + item.quantity;
+
+          [inserted] = await sql`
+            UPDATE user_inventory 
+            SET quantity = ${newQuantity}, updated_at = NOW()
+            WHERE id = ${existingItem.id}
+            RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
+          `;
+        } else {
+          [inserted] = await sql`
+            INSERT INTO user_inventory(user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
+            VALUES(
+              ${decoded.userId},
+              ${item.itemName},
+              ${item.quantity},
+              ${item.category},
+              ${item.purchaseDate || null},
+              ${item.expirationDate || null},
+              ${item.notes || null},
+              ${item.imageUrl || null}
+            )
+            RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
+          `;
+        }
+
         insertedItems.push({
           id: inserted.id,
           itemName: inserted.item_name,
@@ -1154,11 +1531,12 @@ app.post("/api/user-inventory/bulk", async (req, res) => {
           purchaseDate: inserted.purchase_date,
           expirationDate: inserted.expiration_date,
           notes: inserted.notes,
+          imageUrl: inserted.image_url || undefined,
           createdAt: inserted.created_at,
           updatedAt: inserted.updated_at,
         });
       } catch (err) {
-        console.error(`Failed to insert item ${item.itemName}:`, err);
+        console.error(`Failed to insert item ${item.itemName}: `, err);
       }
     }
 
@@ -1198,38 +1576,42 @@ app.put("/api/user-inventory/:id", async (req, res) => {
         purchaseDate: z.string().optional().nullable(),
         expirationDate: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
+        imageUrl: z.union([z.string().url(), z.literal("")]).optional().nullable(),
       })
       .parse(req.body);
 
     // Update fields individually if provided
     if (body.itemName !== undefined) {
-      await sql`UPDATE user_inventory SET item_name = ${body.itemName} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET item_name = ${body.itemName} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
     if (body.quantity !== undefined) {
-      await sql`UPDATE user_inventory SET quantity = ${body.quantity} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET quantity = ${body.quantity} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
     if (body.category !== undefined) {
-      await sql`UPDATE user_inventory SET category = ${body.category} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET category = ${body.category} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
     if (body.purchaseDate !== undefined) {
-      await sql`UPDATE user_inventory SET purchase_date = ${body.purchaseDate || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET purchase_date = ${body.purchaseDate || null} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
     if (body.expirationDate !== undefined) {
-      await sql`UPDATE user_inventory SET expiration_date = ${body.expirationDate || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET expiration_date = ${body.expirationDate || null} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
     if (body.notes !== undefined) {
-      await sql`UPDATE user_inventory SET notes = ${body.notes || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET notes = ${body.notes || null} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
+    }
+    if (body.imageUrl !== undefined) {
+      await sql`UPDATE user_inventory SET image_url = ${body.imageUrl || null} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
 
     // Always update the updated_at timestamp
-    await sql`UPDATE user_inventory SET updated_at = NOW() WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+    await sql`UPDATE user_inventory SET updated_at = NOW() WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
 
     // Fetch the updated item
     const [updatedItem] = await sql`
-      SELECT id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+      SELECT id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
       FROM user_inventory
       WHERE id = ${itemId} AND user_id = ${decoded.userId}
-    `;
+  `;
 
     if (!updatedItem) {
       return res.status(404).json({ message: "Item not found" });
@@ -1245,6 +1627,7 @@ app.put("/api/user-inventory/:id", async (req, res) => {
         purchaseDate: updatedItem.purchase_date,
         expirationDate: updatedItem.expiration_date,
         notes: updatedItem.notes,
+        imageUrl: updatedItem.image_url || undefined,
         createdAt: updatedItem.created_at,
         updatedAt: updatedItem.updated_at,
       },
@@ -1276,7 +1659,7 @@ app.delete("/api/user-inventory/:id", async (req, res) => {
     await sql`
       DELETE FROM user_inventory 
       WHERE id = ${itemId} AND user_id = ${decoded.userId}
-    `;
+  `;
 
     res.json({ message: "Item deleted successfully" });
   } catch (error) {
@@ -1326,7 +1709,7 @@ app.get("/api/notifications", async (req, res) => {
     // Create expired notification
     if (expiredItems.length > 0) {
       notifications.push({
-        id: `expired-${Date.now()}`,
+        id: `expired - ${Date.now()} `,
         type: "expired",
         message: expiredItems.length === 1
           ? `${expiredItems[0].item_name} has expired`
@@ -1343,7 +1726,7 @@ app.get("/api/notifications", async (req, res) => {
     // Create expiring soon notification
     if (expiringSoonItems.length > 0) {
       notifications.push({
-        id: `expiring-${Date.now()}`,
+        id: `expiring - ${Date.now()} `,
         type: "expiring",
         message: expiringSoonItems.length === 1
           ? `${expiringSoonItems[0].item_name} is expiring soon`
@@ -1388,56 +1771,56 @@ app.post("/api/waste-to-asset", async (req, res) => {
     const prompt = multipleItems
       ? `I have the following wasted or overripe items: ${itemList}.
 
-First, determine if these items can be combined together in a recipe or project. If they can be combined, generate ideas that use them together. If they cannot be combined, generate separate ideas.
+  First, determine if these items can be combined together in a recipe or project.If they can be combined, generate ideas that use them together.If they cannot be combined, generate separate ideas.
 
 Return your response as a JSON object with this exact structure:
-{
-  "canCombine": true or false,
-  "recipeIdeas": [
-    {
-      "title": "Short catchy title (max 5 words)",
-      "summary": "Brief one-sentence description (max 20 words)",
-      "details": "Detailed step-by-step instructions (3-5 sentences)"
-    },
-    // ... 2 more recipe ideas (3 total)
-  ],
-  "nonRecipeIdeas": [
-    {
-      "title": "Short catchy title (max 5 words)",
-      "summary": "Brief one-sentence description (max 20 words)",
-      "details": "Detailed step-by-step instructions (3-5 sentences)"
-    },
-    // ... 2 more non-recipe ideas (3 total)
-  ]
-}
+  {
+    "canCombine": true or false,
+      "recipeIdeas": [
+        {
+          "title": "Short catchy title (max 5 words)",
+          "summary": "Brief one-sentence description (max 20 words)",
+          "details": "Detailed step-by-step instructions (3-5 sentences)"
+        },
+        // ... 2 more recipe ideas (3 total)
+      ],
+        "nonRecipeIdeas": [
+          {
+            "title": "Short catchy title (max 5 words)",
+            "summary": "Brief one-sentence description (max 20 words)",
+            "details": "Detailed step-by-step instructions (3-5 sentences)"
+          },
+          // ... 2 more non-recipe ideas (3 total)
+        ]
+  }
 
-Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gardening, DIY, composting, beauty treatments, etc.). Make them creative, practical, and safe.`
+Generate exactly 3 recipe ideas(food / drink recipes) and 3 non - recipe ideas(gardening, DIY, composting, beauty treatments, etc.).Make them creative, practical, and safe.`
       : `I have some wasted or overripe ${body.itemNames[0]}.
 
 Generate creative, practical, and safe ways to repurpose it.
 
 Return your response as a JSON object with this exact structure:
-{
-  "canCombine": true,
-  "recipeIdeas": [
-    {
-      "title": "Short catchy title (max 5 words)",
-      "summary": "Brief one-sentence description (max 20 words)",
-      "details": "Detailed step-by-step instructions (3-5 sentences)"
-    },
-    // ... 2 more recipe ideas (3 total)
-  ],
-  "nonRecipeIdeas": [
-    {
-      "title": "Short catchy title (max 5 words)",
-      "summary": "Brief one-sentence description (max 20 words)",
-      "details": "Detailed step-by-step instructions (3-5 sentences)"
-    },
-    // ... 2 more non-recipe ideas (3 total)
-  ]
-}
+  {
+    "canCombine": true,
+      "recipeIdeas": [
+        {
+          "title": "Short catchy title (max 5 words)",
+          "summary": "Brief one-sentence description (max 20 words)",
+          "details": "Detailed step-by-step instructions (3-5 sentences)"
+        },
+        // ... 2 more recipe ideas (3 total)
+      ],
+        "nonRecipeIdeas": [
+          {
+            "title": "Short catchy title (max 5 words)",
+            "summary": "Brief one-sentence description (max 20 words)",
+            "details": "Detailed step-by-step instructions (3-5 sentences)"
+          },
+          // ... 2 more non-recipe ideas (3 total)
+        ]
+  }
 
-Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gardening, DIY, composting, beauty treatments, etc.).`;
+Generate exactly 3 recipe ideas(food / drink recipes) and 3 non - recipe ideas(gardening, DIY, composting, beauty treatments, etc.).`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -1447,7 +1830,7 @@ Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gar
     let parsedData;
     try {
       // Remove markdown code blocks if present
-      const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const cleanedText = text.replace(/```json\n ? /g, "").replace(/```\n?/g, "").trim();
       parsedData = JSON.parse(cleanedText);
     } catch (parseError) {
       console.error("Failed to parse AI response as JSON:", text);
@@ -1495,7 +1878,7 @@ Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gar
   } catch (error) {
     console.error("Waste to Asset AI failed. Error details:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-    res.status(500).json({ message: `AI Error: ${errorMessage}` });
+    res.status(500).json({ message: `AI Error: ${errorMessage} ` });
   }
 });
 
@@ -1507,11 +1890,11 @@ Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gar
 app.get("/api/community/posts", async (req, res) => {
   try {
     const posts = await sql`
-      SELECT 
-        cp.*,
-        u.name as author_name,
-        u.avatar_url,
-        COUNT(pc.id)::int as comment_count
+  SELECT
+  cp.*,
+    u.name as author_name,
+    u.avatar_url,
+    COUNT(pc.id):: int as comment_count
       FROM community_posts cp
       INNER JOIN users u ON cp.user_id = u.id
       LEFT JOIN post_comments pc ON cp.id = pc.post_id
@@ -1558,7 +1941,7 @@ app.post("/api/community/posts", async (req, res) => {
     const post = result[0];
 
     // Fetch user info to include in response
-    const users = await sql`SELECT name, avatar_url FROM users WHERE id = ${decoded.userId}`;
+    const users = await sql`SELECT name, avatar_url FROM users WHERE id = ${decoded.userId} `;
     const enrichedPost = {
       ...post,
       author_name: users[0]?.name,
@@ -1579,24 +1962,24 @@ app.get("/api/community/posts/:id", async (req, res) => {
     const postId = parseInt(req.params.id);
 
     const posts = await sql`
-      SELECT 
-        cp.*,
-        u.name as author_name,
-        u.avatar_url
+  SELECT
+  cp.*,
+    u.name as author_name,
+    u.avatar_url
       FROM community_posts cp
       INNER JOIN users u ON cp.user_id = u.id
       WHERE cp.id = ${postId}
-    `;
+  `;
 
     if (posts.length === 0) {
       return res.status(404).json({ message: "Post not found" });
     }
 
     const comments = await sql`
-      SELECT 
-        pc.*,
-        u.name as author_name,
-        u.avatar_url
+  SELECT
+  pc.*,
+    u.name as author_name,
+    u.avatar_url
       FROM post_comments pc
       INNER JOIN users u ON pc.user_id = u.id
       WHERE pc.post_id = ${postId}
@@ -1624,14 +2007,14 @@ app.delete("/api/community/posts/:id", async (req, res) => {
 
     // Check if post belongs to user
     const posts = await sql`
-      SELECT * FROM community_posts WHERE id = ${postId} AND user_id = ${decoded.userId}
-    `;
+  SELECT * FROM community_posts WHERE id = ${postId} AND user_id = ${decoded.userId}
+  `;
 
     if (posts.length === 0) {
       return res.status(403).json({ message: "Not authorized to delete this post" });
     }
 
-    await sql`DELETE FROM community_posts WHERE id = ${postId}`;
+    await sql`DELETE FROM community_posts WHERE id = ${postId} `;
     res.json({ message: "Post deleted successfully" });
   } catch (error) {
     console.error("Delete post failed", error);
@@ -1656,15 +2039,15 @@ app.post("/api/community/posts/:id/comments", async (req, res) => {
     }).parse(req.body);
 
     const result = await sql`
-      INSERT INTO post_comments (post_id, user_id, comment_text)
-      VALUES (${postId}, ${decoded.userId}, ${body.commentText})
-      RETURNING *
+      INSERT INTO post_comments(post_id, user_id, comment_text)
+  VALUES(${postId}, ${decoded.userId}, ${body.commentText})
+  RETURNING *
     `;
 
     const comment = result[0];
 
     // Get author info
-    const users = await sql`SELECT name, avatar_url FROM users WHERE id = ${decoded.userId}`;
+    const users = await sql`SELECT name, avatar_url FROM users WHERE id = ${decoded.userId} `;
     const enrichedComment = {
       ...comment,
       author_name: users[0].name,
@@ -1692,14 +2075,14 @@ app.delete("/api/community/comments/:id", async (req, res) => {
 
     // Check if comment belongs to user
     const comments = await sql`
-      SELECT * FROM post_comments WHERE id = ${commentId} AND user_id = ${decoded.userId}
-    `;
+  SELECT * FROM post_comments WHERE id = ${commentId} AND user_id = ${decoded.userId}
+  `;
 
     if (comments.length === 0) {
       return res.status(403).json({ message: "Not authorized to delete this comment" });
     }
 
-    await sql`DELETE FROM post_comments WHERE id = ${commentId}`;
+    await sql`DELETE FROM post_comments WHERE id = ${commentId} `;
     res.json({ message: "Comment deleted successfully" });
   } catch (error) {
     console.error("Delete comment failed", error);
@@ -1818,7 +2201,7 @@ app.post("/api/chatbot", async (req, res) => {
 
     // Build conversation history for context
     const historyContext = body.conversationHistory?.map(msg =>
-      `${msg.role === 'user' ? 'User' : 'KhaddoKotha'}: ${msg.content}`
+      `${msg.role === 'user' ? 'User' : 'KhaddoKotha'}: ${msg.content} `
     ).join('\n') || '';
 
     // Build session context information
@@ -1839,6 +2222,7 @@ app.post("/api/chatbot", async (req, res) => {
       }
       sessionInfo += '- This is an ongoing conversation. Reference previous messages for context.\n';
     }
+
 
     const systemPrompt = `You are KhaddoKotha AI Assistant, an expert food management and sustainability advisor for a food waste reduction platform.
 
@@ -1915,8 +2299,9 @@ ${userContext}
 
 ${sessionInfo}
 
-${historyContext ? `Previous conversation:\n${historyContext}\n\n` : ''}User: ${body.message}
-KhaddoKotha:`;
+
+${historyContext ? `Previous conversation:\n${historyContext}\n\n` : ''} User: ${body.message}
+  KhaddoKotha: `;
 
     const result = await model.generateContent(systemPrompt);
     const response = await result.response;
@@ -1969,30 +2354,30 @@ app.post("/api/diet-planner/generate", async (req, res) => {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const prompt = `
-      You are a smart diet planner. Create a one-person daily meal plan (Breakfast, Lunch, Dinner) based on the following constraints:
+      You are a smart diet planner.Create a one - person daily meal plan(Breakfast, Lunch, Dinner) based on the following constraints:
 
-      **User Inputs:**
-      - Daily Budget: $${body.budget}
-      - Meal Preference: ${body.preference}
+      ** User Inputs:**
+    - Daily Budget: $${body.budget}
+  - Meal Preference: ${body.preference}
 
-      **Inventories:**
-      1. **Home Inventory** (Cost: $0, Prioritize these to reduce waste):
+      ** Inventories:**
+    1. ** Home Inventory ** (Cost: $0, Prioritize these to reduce waste):
          ${JSON.stringify(userInventory)}
-      2. **General Store Inventory** (Cost: specified per unit, use to fill gaps):
+  2. ** General Store Inventory ** (Cost: specified per unit, use to fill gaps):
          ${JSON.stringify(storeInventory)}
 
-      **Rules:**
-      1. **Categorize Foods:** Ensure a balance of Carb, Protein, Vegetable, Fruit/Dairy/Extras.
-      2. **Prioritize Home Items:** Use available home items first.
-      3. **Fill Gaps:** Buy cheapest suitable items from store inventory if needed.
-      4. **Budget:** Total cost of STORE items must be <= $${body.budget}.
-      5. **Preference:** 
-         - Veg: No meat/fish/egg.
-         - Non-Veg: Allow meat/egg/fish.
+      ** Rules:**
+    1. ** Categorize Foods:** Ensure a balance of Carb, Protein, Vegetable, Fruit / Dairy / Extras.
+      2. ** Prioritize Home Items:** Use available home items first.
+      3. ** Fill Gaps:** Buy cheapest suitable items from store inventory if needed.
+      4. ** Budget:** Total cost of STORE items must be <= $${body.budget}.
+  5. ** Preference:**
+    - Veg: No meat / fish / egg.
+         - Non - Veg: Allow meat / egg / fish.
          - Balanced: Mix freely.
-      7. **Nutrition Analysis:** Calculate approximate total nutrition (Calories, Protein, Carbs, Fats, Fiber) for the entire day's plan. Compare these with standard daily recommendations for an average adult (approx. 2000kcal).
+      7. ** Nutrition Analysis:** Calculate approximate total nutrition(Calories, Protein, Carbs, Fats, Fiber) for the entire day's plan. Compare these with standard daily recommendations for an average adult (approx. 2000kcal).
 
-      **Output Format (JSON only):**
+    ** Output Format(JSON only):**
       {
         "meals": {
           "breakfast": [{ "item": "Name", "source": "Home" | "Store", "cost": 0.00 }],
@@ -2012,13 +2397,13 @@ app.post("/api/diet-planner/generate", async (req, res) => {
           "fiber": { "provided": 0, "recommended": 28, "unit": "g" }
         }
       }
-    `;
+        `;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
 
-    const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const cleanedText = text.replace(/```json\n ? /g, "").replace(/```\n?/g, "").trim();
     const dietPlan = JSON.parse(cleanedText);
 
     res.json(dietPlan);
