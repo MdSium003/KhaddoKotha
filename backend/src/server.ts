@@ -14,6 +14,13 @@ import {
   verifyToken,
 } from "./auth";
 
+// Import AI services
+import { RiskPredictor } from "./ai/risk-predictor";
+import { RankingService } from "./ai/ranking-service";
+import { AlertManager } from "./ai/alert-manager";
+import { WasteEstimator } from "./ai/waste-estimator";
+import { CommunityComparator } from "./ai/community-comparator";
+
 const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   PORT: z.coerce.number().default(4000),
@@ -34,6 +41,13 @@ const app = express();
 const sql = neon(config.DATABASE_URL);
 const genAI = config.GEMINI_API_KEY ? new GoogleGenerativeAI(config.GEMINI_API_KEY) : null;
 console.log("Gemini API Key configured:", !!config.GEMINI_API_KEY);
+
+// Initialize AI services
+const riskPredictor = new RiskPredictor(sql, genAI);
+const rankingService = new RankingService(sql);
+const alertManager = new AlertManager(sql);
+const wasteEstimator = new WasteEstimator(sql);
+const communityComparator = new CommunityComparator(sql, genAI);
 
 app.use(
   cors({
@@ -924,7 +938,7 @@ function detectImbalancedPatterns(weeklyTrends: any[], consumptionPatterns: any)
     for (let i = 1; i < weeklyTrends.length; i++) {
       const currentWeek = weeklyTrends[i].totalQuantity;
       const previousWeek = weeklyTrends[i - 1].totalQuantity;
-      
+
       if (previousWeek > 0) {
         const change = Math.abs((currentWeek - previousWeek) / previousWeek);
         if (change > 1.0) {
@@ -949,7 +963,7 @@ function detectImbalancedPatterns(weeklyTrends: any[], consumptionPatterns: any)
 function generateHeatmapData(weeklyTrends: any[], consumptionPatterns: any) {
   // Get all unique categories
   const allCategories = Object.keys(consumptionPatterns);
-  
+
   // If no categories, return empty data
   if (allCategories.length === 0) {
     return {
@@ -962,7 +976,7 @@ function generateHeatmapData(weeklyTrends: any[], consumptionPatterns: any) {
 
   // Create heatmap data structure: category x week
   const heatmapData: Array<{ category: string; week: number; value: number }> = [];
-  
+
   // Calculate max value for normalization
   let maxValue = 0;
 
@@ -1723,7 +1737,7 @@ app.post("/api/chatbot", async (req, res) => {
       if (authHeader?.startsWith("Bearer ")) {
         const token = authHeader.substring(7);
         const decoded = verifyToken(token);
-        
+
         // Fetch user inventory
         const inventoryItems = await sql`
           SELECT item_name, quantity, category, expiration_date, purchase_date
@@ -1754,7 +1768,7 @@ app.post("/api/chatbot", async (req, res) => {
 
         if (inventoryItems.length > 0 || usageLogs.length > 0 || userData.length > 0) {
           userContext = '\n\nUSER CONTEXT (use this to provide personalized advice):\n';
-          
+
           if (userData.length > 0) {
             const user = userData[0];
             userContext += `User Profile:\n`;
@@ -1772,7 +1786,7 @@ app.post("/api/chatbot", async (req, res) => {
               const daysUntilExp = Math.ceil((expDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
               return daysUntilExp <= 7 && daysUntilExp >= 0;
             });
-            
+
             if (expiringSoon.length > 0) {
               userContext += `⚠️ Items expiring soon (within 7 days):\n`;
               expiringSoon.forEach(item => {
@@ -1781,7 +1795,7 @@ app.post("/api/chatbot", async (req, res) => {
                 userContext += `  - ${item.item_name} (${item.quantity} ${item.category}) - ${daysLeft} days left\n`;
               });
             }
-            
+
             userContext += `All items: ${inventoryItems.map(item => `${item.item_name} (${item.quantity} ${item.category})`).join(', ')}\n`;
           }
 
@@ -2330,6 +2344,385 @@ app.get("/api/sustainability/scores", async (req, res) => {
   } catch (error) {
     console.error("Get sustainability scores failed", error);
     res.status(500).json({ message: "Failed to fetch scores" });
+  }
+});
+
+// =====================
+// AI FEATURES ENDPOINTS
+// =====================
+
+// Get expiration risk scores for all user inventory items
+app.get("/api/risk/inventory/:userId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = parseInt(req.params.userId);
+
+    // Verify user can only access their own data
+    if (decoded.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // Get all risk scores from database
+    const riskScores = await sql`
+      SELECT 
+        ers.*,
+        ui.item_name,
+        ui.category,
+        ui.quantity,
+        ui.expiration_date
+      FROM expiration_risk_scores ers
+      JOIN user_inventory ui ON ers.inventory_item_id = ui.id
+      WHERE ers.user_id = ${userId}
+      ORDER BY ers.risk_score DESC
+    `;
+
+    res.json({ riskScores });
+  } catch (error) {
+    console.error("Get risk scores failed", error);
+    res.status(500).json({ message: "Failed to get risk scores" });
+  }
+});
+
+// Calculate and update risk scores for a user
+app.post("/api/risk/calculate/:userId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = parseInt(req.params.userId);
+
+    if (decoded.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // Calculate all risk scores
+    const riskScores = await riskPredictor.calculateAllRisks(userId);
+
+    // Save to database
+    await riskPredictor.saveRiskScores(userId, riskScores);
+
+    res.json({
+      message: "Risk scores calculated successfully",
+      count: riskScores.length,
+      riskScores,
+    });
+  } catch (error) {
+    console.error("Calculate risk scores failed", error);
+    res.status(500).json({ message: "Failed to calculate risk scores" });
+  }
+});
+
+// Get prioritized consumption list (FIFO + AI)
+app.get("/api/risk/prioritized/:userId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = parseInt(req.params.userId);
+
+    if (decoded.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const prioritizedItems = await rankingService.prioritizeItems(userId);
+
+    res.json({ prioritizedItems });
+  } catch (error) {
+    console.error("Get prioritized items failed", error);
+    res.status(500).json({ message: "Failed to get prioritized items" });
+  }
+});
+
+// Get active alerts for a user
+app.get("/api/alerts/:userId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = parseInt(req.params.userId);
+
+    if (decoded.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const alerts = await alertManager.getActiveAlerts(userId);
+
+    res.json({ alerts });
+  } catch (error) {
+    console.error("Get alerts failed", error);
+    res.status(500).json({ message: "Failed to get alerts" });
+  }
+});
+
+// Generate new alerts for a user
+app.post("/api/alerts/generate/:userId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = parseInt(req.params.userId);
+
+    if (decoded.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const alerts = await alertManager.generateAlerts(userId);
+
+    res.json({
+      message: "Alerts generated successfully",
+      count: alerts.length,
+      alerts,
+    });
+  } catch (error) {
+    console.error("Generate alerts failed", error);
+    res.status(500).json({ message: "Failed to generate alerts" });
+  }
+});
+
+// Dismiss an alert
+app.post("/api/alerts/:alertId/dismiss", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const alertId = parseInt(req.params.alertId);
+
+    const success = await alertManager.dismissAlert(alertId, decoded.userId);
+
+    if (success) {
+      res.json({ message: "Alert dismissed successfully" });
+    } else {
+      res.status(404).json({ message: "Alert not found or already dismissed" });
+    }
+  } catch (error) {
+    console.error("Dismiss alert failed", error);
+    res.status(500).json({ message: "Failed to dismiss alert" });
+  }
+});
+
+// Get waste estimate for a user
+app.get("/api/waste/estimate/:userId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = parseInt(req.params.userId);
+
+    if (decoded.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const estimate = await wasteEstimator.estimateCurrentWaste(userId);
+    const historical = await wasteEstimator.getHistoricalWasteStats(userId);
+
+    res.json({ estimate, historical });
+  } catch (error) {
+    console.error("Get waste estimate failed", error);
+    res.status(500).json({ message: "Failed to get waste estimate" });
+  }
+});
+
+// Get waste projections (weekly and monthly)
+app.get("/api/waste/projections/:userId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = parseInt(req.params.userId);
+
+    if (decoded.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const weeklyProjection = await wasteEstimator.getWeeklyProjection(userId);
+    const monthlyProjection = await wasteEstimator.getMonthlyProjection(userId);
+
+    res.json({
+      weekly: weeklyProjection,
+      monthly: monthlyProjection,
+    });
+  } catch (error) {
+    console.error("Get waste projections failed", error);
+    res.status(500).json({ message: "Failed to get waste projections" });
+  }
+});
+
+// Get waste patterns
+app.get("/api/waste/patterns/:userId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = parseInt(req.params.userId);
+
+    if (decoded.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const patterns = await wasteEstimator.analyzeWastePatterns(userId);
+
+    res.json({ patterns });
+  } catch (error) {
+    console.error("Get waste patterns failed", error);
+    res.status(500).json({ message: "Failed to get waste patterns" });
+  }
+});
+
+// Record actual waste
+app.post("/api/waste/record", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    const body = z
+      .object({
+        itemName: z.string().min(1),
+        category: z.string().min(1),
+        quantityGrams: z.number().positive(),
+        costWasted: z.number().nonnegative(),
+        reason: z.string().optional(),
+      })
+      .parse(req.body);
+
+    await wasteEstimator.recordWaste(
+      decoded.userId,
+      body.itemName,
+      body.category,
+      body.quantityGrams,
+      body.costWasted,
+      body.reason
+    );
+
+    res.json({ message: "Waste recorded successfully" });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.issues[0]?.message });
+    }
+    console.error("Record waste failed", error);
+    res.status(500).json({ message: "Failed to record waste" });
+  }
+});
+
+// Compare user's waste to community averages
+app.get("/api/waste/community-compare/:userId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = parseInt(req.params.userId);
+
+    if (decoded.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // Get user's current waste estimate
+    const userEstimate = await wasteEstimator.estimateCurrentWaste(userId);
+    const weeklyProjection = await wasteEstimator.getWeeklyProjection(userId);
+
+    // Compare to community
+    const comparison = await communityComparator.compareToCommmunity(
+      userId,
+      weeklyProjection.estimated_grams,
+      weeklyProjection.estimated_cost
+    );
+
+    res.json({ comparison });
+  } catch (error) {
+    console.error("Community comparison failed", error);
+    res.status(500).json({ message: "Failed to compare to community" });
+  }
+});
+
+// Get AI-generated waste reduction insights
+app.get("/api/waste/insights/:userId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = parseInt(req.params.userId);
+
+    if (decoded.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // Get comparison data
+    const userEstimate = await wasteEstimator.estimateCurrentWaste(userId);
+    const weeklyProjection = await wasteEstimator.getWeeklyProjection(userId);
+    const comparison = await communityComparator.compareToCommmunity(
+      userId,
+      weeklyProjection.estimated_grams,
+      weeklyProjection.estimated_cost
+    );
+
+    // Generate insights
+    const insights = await communityComparator.generateInsights(userId, comparison);
+
+    res.json({ insights });
+  } catch (error) {
+    console.error("Generate insights failed", error);
+    res.status(500).json({ message: "Failed to generate insights" });
+  }
+});
+
+// Get community averages
+app.get("/api/waste/community-averages", async (_req, res) => {
+  try {
+    const averages = await communityComparator.getCommunityAverages();
+    res.json({ averages });
+  } catch (error) {
+    console.error("Get community averages failed", error);
+    res.status(500).json({ message: "Failed to get community averages" });
   }
 });
 

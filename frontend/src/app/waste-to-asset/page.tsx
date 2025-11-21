@@ -147,6 +147,80 @@ export default function WasteToAssetPage() {
                             </p>
                         </div>
 
+                        {/* AI Analytics Features Navigation */}
+                        <div className="mb-8 bg-gradient-to-r from-emerald-50 to-green-50 rounded-2xl border-2 border-emerald-200 p-6">
+                            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                <span>🤖</span>
+                                <span>AI-Powered Waste Management Tools</span>
+                            </h2>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <a
+                                    href="/analytics"
+                                    className="block bg-white rounded-xl border-2 border-emerald-300 p-6 hover:border-emerald-500 hover:shadow-lg transition-all group"
+                                >
+                                    <div className="flex items-start gap-4">
+                                        <div className="text-4xl group-hover:scale-110 transition-transform">
+                                            🎯
+                                        </div>
+                                        <div className="flex-1">
+                                            <h3 className="text-lg font-bold text-gray-900 mb-2 group-hover:text-emerald-600 transition-colors">
+                                                Expiration Risk Analysis
+                                            </h3>
+                                            <p className="text-sm text-gray-600 mb-3">
+                                                AI predicts which items are most likely to expire based on consumption patterns, seasonality, and category risks.
+                                            </p>
+                                            <ul className="text-xs text-gray-500 space-y-1">
+                                                <li>• Risk scores for all inventory items</li>
+                                                <li>• FIFO + AI prioritized consumption list</li>
+                                                <li>• Smart alerts for high-risk items</li>
+                                            </ul>
+                                            <div className="mt-4 text-emerald-600 font-semibold text-sm flex items-center gap-2 group-hover:gap-3 transition-all">
+                                                View Risk Dashboard
+                                                <span>→</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </a>
+
+                                <a
+                                    href="/analytics"
+                                    className="block bg-white rounded-xl border-2 border-purple-300 p-6 hover:border-purple-500 hover:shadow-lg transition-all group"
+                                >
+                                    <div className="flex items-start gap-4">
+                                        <div className="text-4xl group-hover:scale-110 transition-transform">
+                                            ♻️
+                                        </div>
+                                        <div className="flex-1">
+                                            <h3 className="text-lg font-bold text-gray-900 mb-2 group-hover:text-purple-600 transition-colors">
+                                                Waste Analytics & Insights
+                                            </h3>
+                                            <p className="text-sm text-gray-600 mb-3">
+                                                Get personalized insights on waste patterns with weekly/monthly projections and community comparisons.
+                                            </p>
+                                            <ul className="text-xs text-gray-500 space-y-1">
+                                                <li>• Waste estimates in grams & money</li>
+                                                <li>• Community percentile ranking</li>
+                                                <li>• AI-generated reduction strategies</li>
+                                            </ul>
+                                            <div className="mt-4 text-purple-600 font-semibold text-sm flex items-center gap-2 group-hover:gap-3 transition-all">
+                                                View Waste Analytics
+                                                <span>→</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </a>
+                            </div>
+                        </div>
+
+                        {/* Divider */}
+                        <div className="flex items-center gap-4 mb-8">
+                            <div className="flex-1 h-px bg-slate-300"></div>
+                            <span className="text-sm font-semibold text-slate-500 uppercase tracking-wider">
+                                AI Recipe & Repurpose Generator
+                            </span>
+                            <div className="flex-1 h-px bg-slate-300"></div>
+                        </div>
+
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                             {/* Inventory List with Multi-Select */}
                             <div className="lg:col-span-1 bg-slate-50 rounded-2xl p-6 border border-slate-200 h-fit">
