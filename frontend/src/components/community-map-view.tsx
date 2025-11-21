@@ -46,16 +46,6 @@ export function CommunityMapView({ posts, userLocation, onPostClick }: Community
             const L = (window as any).L;
             if (!L) return;
 
-            // Clear previous map
-            if (mapInstanceRef.current) {
-                mapInstanceRef.current.remove();
-                markersRef.current.forEach(marker => marker.remove());
-                markersRef.current = [];
-                if (userMarkerRef.current) {
-                    userMarkerRef.current.remove();
-                }
-            }
-
             // Determine center - use user location if available, otherwise use first post or default
             let centerLat = 23.8103; // Default: Dhaka, Bangladesh
             let centerLng = 90.4125;
@@ -65,19 +55,36 @@ export function CommunityMapView({ posts, userLocation, onPostClick }: Community
                 centerLat = userLocation.latitude;
                 centerLng = userLocation.longitude;
                 zoom = 13;
-            } else if (posts.length > 0) {
+            } else if (posts && posts.length > 0 && posts[0].latitude && posts[0].longitude) {
                 centerLat = posts[0].latitude;
                 centerLng = posts[0].longitude;
             }
 
-            // Create map
-            const map = L.map(mapRef.current).setView([centerLat, centerLng], zoom);
+            // Create map only once
+            if (!mapInstanceRef.current) {
+                const map = L.map(mapRef.current).setView([centerLat, centerLng], zoom);
 
-            // Add tile layer
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors',
-                maxZoom: 19,
-            }).addTo(map);
+                // Add tile layer
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors',
+                    maxZoom: 19,
+                }).addTo(map);
+
+                mapInstanceRef.current = map;
+            }
+
+            const map = mapInstanceRef.current;
+
+            // Update view on posts/user location change
+            map.setView([centerLat, centerLng], zoom);
+
+            // Clear existing markers
+            markersRef.current.forEach(marker => marker.remove());
+            markersRef.current = [];
+            if (userMarkerRef.current) {
+                userMarkerRef.current.remove();
+                userMarkerRef.current = null;
+            }
 
             // Add user location marker if available
             if (userLocation) {
@@ -102,7 +109,7 @@ export function CommunityMapView({ posts, userLocation, onPostClick }: Community
             }
 
             // Add markers for each post
-            posts.forEach((post) => {
+            (posts || []).forEach((post) => {
                 if (!post.latitude || !post.longitude) return;
 
                 // Create custom icon based on post type
@@ -129,6 +136,8 @@ export function CommunityMapView({ posts, userLocation, onPostClick }: Community
                 });
 
                 // Create popup content
+                const safeAddress = post.address || "Address not provided";
+                const shortAddress = safeAddress.length > 50 ? safeAddress.substring(0, 50) + "..." : safeAddress;
                 const popupContent = `
                     <div style="min-width: 200px; padding: 8px;">
                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
@@ -142,7 +151,7 @@ export function CommunityMapView({ posts, userLocation, onPostClick }: Community
                             ${post.post_type === 'donate' ? 'Expires:' : 'Needed by:'} ${new Date(post.target_date).toLocaleDateString()}
                         </div>
                         <div style="font-size: 11px; color: #64748b; margin-bottom: 8px;">
-                            📍 ${post.address.length > 50 ? post.address.substring(0, 50) + '...' : post.address}
+                            📍 ${shortAddress}
                         </div>
                         <div style="font-size: 11px; color: #64748b;">
                             Click marker for details
@@ -176,8 +185,6 @@ export function CommunityMapView({ posts, userLocation, onPostClick }: Community
                 }
             };
             window.addEventListener('openPostDetails', handleOpenPostDetails as EventListener);
-
-            mapInstanceRef.current = map;
             setIsMapReady(true);
         };
 
@@ -193,8 +200,38 @@ export function CommunityMapView({ posts, userLocation, onPostClick }: Community
         };
     }, [posts, userLocation, onPostClick]);
 
+    const handleCenterOnUser = () => {
+        if (userLocation && mapInstanceRef.current) {
+            mapInstanceRef.current.setView(
+                [userLocation.latitude, userLocation.longitude],
+                14,
+                { animate: true },
+            );
+            if (userMarkerRef.current) {
+                userMarkerRef.current.openPopup();
+            }
+        } else if (!userLocation) {
+            // Optional: prompt user to enable location in the community page
+            if (typeof window !== "undefined") {
+                // eslint-disable-next-line no-alert
+                window.alert("Turn on \"Use my location\" in the Community page to see your position on the map.");
+            }
+        }
+    };
+
     return (
         <div className="w-full h-[600px] rounded-2xl border-2 border-slate-200 overflow-hidden shadow-lg relative">
+            {/* My Location button */}
+            <button
+                type="button"
+                onClick={handleCenterOnUser}
+                className="absolute top-4 right-4 z-20 inline-flex items-center gap-2 rounded-full bg-white/95 px-4 py-2 text-sm font-semibold text-slate-700 shadow-md hover:bg-emerald-50 hover:text-emerald-700 hover:shadow-lg transition-all"
+            >
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white text-[11px] font-bold">
+                    ●
+                </span>
+                <span>My location</span>
+            </button>
             {!isMapReady && (
                 <div className="absolute inset-0 bg-slate-100 flex items-center justify-center z-10">
                     <div className="text-center">
