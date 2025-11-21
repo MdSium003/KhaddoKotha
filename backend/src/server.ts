@@ -2403,8 +2403,18 @@ app.post("/api/diet-planner/generate", async (req, res) => {
     const response = await result.response;
     const text = response.text();
 
-    const cleanedText = text.replace(/```json\n ? /g, "").replace(/```\n?/g, "").trim();
-    const dietPlan = JSON.parse(cleanedText);
+    const cleanedText = text
+      .replace(/```json/gi, "")
+      .replace(/```/g, "")
+      .replace(/^\s*json\s*/i, "")
+      .trim();
+
+    const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("LLM response did not contain valid JSON");
+    }
+
+    const dietPlan = JSON.parse(jsonMatch[0]);
 
     res.json(dietPlan);
 
