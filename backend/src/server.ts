@@ -1799,7 +1799,7 @@ Generate exactly 3 recipe ideas(food / drink recipes) and 3 non - recipe ideas(g
 
 Generate creative, practical, and safe ways to repurpose it.
 
-Return your response as a JSON object with this exact structure:
+Respond with JSON only – no explanations, markdown, or prose. Return your response using this exact structure:
   {
     "canCombine": true,
       "recipeIdeas": [
@@ -1829,9 +1829,18 @@ Generate exactly 3 recipe ideas(food / drink recipes) and 3 non - recipe ideas(g
     // Try to parse JSON from the response
     let parsedData;
     try {
-      // Remove markdown code blocks if present
-      const cleanedText = text.replace(/```json\n ? /g, "").replace(/```\n?/g, "").trim();
-      parsedData = JSON.parse(cleanedText);
+      const cleanedText = text
+        .replace(/```json/gi, "")
+        .replace(/```/g, "")
+        .replace(/^\s*json\s*/i, "")
+        .trim();
+
+      const jsonMatch = cleanedText.match(/\{[\s\S]*\}$/);
+      if (!jsonMatch) {
+        throw new Error("No JSON object found in AI response");
+      }
+
+      parsedData = JSON.parse(jsonMatch[0]);
     } catch (parseError) {
       console.error("Failed to parse AI response as JSON:", text);
       // Fallback: return unparsed text
@@ -2336,7 +2345,10 @@ app.post("/api/diet-planner/generate", async (req, res) => {
     const body = z.object({
       budget: z.number().positive(),
       preference: z.enum(["Veg", "Non-Veg", "Balanced"]),
+      duration: z.enum(["daily", "weekly"]).optional()
     }).parse(req.body);
+
+    const planDuration = body.duration ?? "weekly";
 
     // Fetch User Inventory (Home)
     const userInventory = await sql`
@@ -2353,42 +2365,67 @@ app.post("/api/diet-planner/generate", async (req, res) => {
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+    const weeklyScope = planDuration === "weekly";
+
     const prompt = `
-      You are a smart diet planner.Create a one - person daily meal plan(Breakfast, Lunch, Dinner) based on the following constraints:
+      You are a smart diet planner. Create a ${weeklyScope ? "7-day weekly" : "one-day"} meal plan for one person (Breakfast, Lunch, Dinner) using the following constraints:
 
-      ** User Inputs:**
-    - Daily Budget: $${body.budget}
-  - Meal Preference: ${body.preference}
+      **User Inputs**
+      - Daily Budget: $${body.budget}
+      - Meal Preference: ${body.preference}
 
-      ** Inventories:**
-    1. ** Home Inventory ** (Cost: $0, Prioritize these to reduce waste):
+      **Inventories**
+      1. Home Inventory (Cost: $0, prioritize to reduce waste):
          ${JSON.stringify(userInventory)}
-  2. ** General Store Inventory ** (Cost: specified per unit, use to fill gaps):
+      2. Store Inventory (Cost: listed per unit, only use to fill gaps):
          ${JSON.stringify(storeInventory)}
 
-      ** Rules:**
-    1. ** Categorize Foods:** Ensure a balance of Carb, Protein, Vegetable, Fruit / Dairy / Extras.
-      2. ** Prioritize Home Items:** Use available home items first.
-      3. ** Fill Gaps:** Buy cheapest suitable items from store inventory if needed.
-      4. ** Budget:** Total cost of STORE items must be <= $${body.budget}.
-  5. ** Preference:**
-    - Veg: No meat / fish / egg.
-         - Non - Veg: Allow meat / egg / fish.
-         - Balanced: Mix freely.
-      7. ** Nutrition Analysis:** Calculate approximate total nutrition(Calories, Protein, Carbs, Fats, Fiber) for the entire day's plan. Compare these with standard daily recommendations for an average adult (approx. 2000kcal).
+      **Rules**
+      1. Always balance Carb, Protein, Vegetable, Fruit/Dairy/Extras.
+      2. Prioritize home inventory before buying from store.
+      3. Total store spend per day must stay <= $${body.budget}.
+      4. Respect meal preference guidelines.
+      5. Provide a short encouragement comment for each day plus an overall weekly comment.
+      6. Add a priority badge per item ("green" optional, "yellow" substitutable, "red" essential). If priority is yellow add a substitute string.
+      7. Include quick notes (tips, prep, leftovers) when helpful.
+      8. Provide alternative meal ideas per meal type using similar ingredients.
+      9. Calculate nutrition (Calories, Protein, Carbs, Fats, Fiber) for each day and compare vs recommendations.
 
-    ** Output Format(JSON only):**
+      **Output Format (JSON only)**
       {
+        "planComment": "One sentence summary or encouragement for the week",
         "meals": {
-          "breakfast": [{ "item": "Name", "source": "Home" | "Store", "cost": 0.00 }],
-          "lunch": [{ "item": "Name", "source": "Home" | "Store", "cost": 0.00 }],
-          "dinner": [{ "item": "Name", "source": "Home" | "Store", "cost": 0.00 }]
+          "breakfast": [...],
+          "lunch": [...],
+          "dinner": [...]
+        },
+        "weeklyMeals": {
+          "Monday": {
+            "comment": "Short motivation for the day",
+            "breakfast": [{ "item": "Name", "source": "Home" | "Store", "cost": 0.00, "priority": "green"|"yellow"|"red", "substitute": "text", "note": "text" }],
+            "lunch": [...],
+            "dinner": [...],
+            "alternatives": {
+              "breakfast": ["Alternative idea 1"],
+              "lunch": ["Alternative idea 1"],
+              "dinner": ["Alternative idea 1"]
+            }
+          }
+        },
+        "dailyNutrition": {
+          "Monday": {
+            "calories": { "provided": 0, "recommended": 2000, "unit": "kcal" },
+            "protein": { "provided": 0, "recommended": 50, "unit": "g" },
+            "carbs": { "provided": 0, "recommended": 275, "unit": "g" },
+            "fats": { "provided": 0, "recommended": 78, "unit": "g" },
+            "fiber": { "provided": 0, "recommended": 28, "unit": "g" }
+          }
         },
         "totalCost": 0.00,
-        "homeItemsUsed": ["Item1", "Item2"],
-        "storeItemsUsed": ["Item3", "Item4"],
-        "sustainabilityImpact": "Brief text about money saved or waste prevented",
-        "expiringItemsUsed": ["Item1"],
+        "homeItemsUsed": ["Item1"],
+        "storeItemsUsed": ["Item2"],
+        "sustainabilityImpact": "Brief text",
+        "expiringItemsUsed": ["Item3"],
         "nutritionAnalysis": {
           "calories": { "provided": 0, "recommended": 2000, "unit": "kcal" },
           "protein": { "provided": 0, "recommended": 50, "unit": "g" },
@@ -2397,7 +2434,11 @@ app.post("/api/diet-planner/generate", async (req, res) => {
           "fiber": { "provided": 0, "recommended": 28, "unit": "g" }
         }
       }
-        `;
+
+      - Only respond with valid JSON.
+      - Ensure every day (Monday through Sunday) includes distinct meals, alternatives, nutrition, and comments.
+      - "meals" should mirror the first day so UI can display something by default.
+    `;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -2415,6 +2456,13 @@ app.post("/api/diet-planner/generate", async (req, res) => {
     }
 
     const dietPlan = JSON.parse(jsonMatch[0]);
+
+    if (dietPlan.weeklyMeals && !dietPlan.meals) {
+      const firstDay = Object.keys(dietPlan.weeklyMeals)[0];
+      if (firstDay) {
+        dietPlan.meals = dietPlan.weeklyMeals[firstDay];
+      }
+    }
 
     res.json(dietPlan);
 

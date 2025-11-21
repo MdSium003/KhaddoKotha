@@ -685,26 +685,42 @@ export type MealItem = {
   item: string;
   source: "Home" | "Store";
   cost: number;
+  priority?: "green" | "yellow" | "red";
+  substitute?: string;
+  note?: string;
+};
+
+export type NutritionInfo = {
+  calories: { provided: number; recommended: number; unit: string };
+  protein: { provided: number; recommended: number; unit: string };
+  carbs: { provided: number; recommended: number; unit: string };
+  fats: { provided: number; recommended: number; unit: string };
+  fiber: { provided: number; recommended: number; unit: string };
+};
+
+export type DayMeals = {
+  breakfast: MealItem[];
+  lunch: MealItem[];
+  dinner: MealItem[];
+  comment?: string;
+  alternatives?: {
+    breakfast?: string[];
+    lunch?: string[];
+    dinner?: string[];
+  };
 };
 
 export type DietPlan = {
-  meals: {
-    breakfast: MealItem[];
-    lunch: MealItem[];
-    dinner: MealItem[];
-  };
+  meals: DayMeals;
+  weeklyMeals?: Record<string, DayMeals>;
+  dailyNutrition?: Record<string, NutritionInfo>;
   totalCost: number;
   homeItemsUsed: string[];
   storeItemsUsed: string[];
   sustainabilityImpact: string;
   expiringItemsUsed: string[];
-  nutritionAnalysis?: {
-    calories: { provided: number; recommended: number; unit: string };
-    protein: { provided: number; recommended: number; unit: string };
-    carbs: { provided: number; recommended: number; unit: string };
-    fats: { provided: number; recommended: number; unit: string };
-    fiber: { provided: number; recommended: number; unit: string };
-  };
+  nutritionAnalysis?: NutritionInfo;
+  planComment?: string;
 };
 
 // Sustainability Points types
@@ -755,11 +771,12 @@ export async function getSustainabilityScores(): Promise<SustainabilityScoresRes
 
 export async function generateDietPlan(
   budget: number,
-  preference: "Veg" | "Non-Veg" | "Balanced"
+  preference: "Veg" | "Non-Veg" | "Balanced",
+  duration: "daily" | "weekly" = "weekly"
 ): Promise<DietPlan> {
   return request<DietPlan>("/api/diet-planner/generate", {
     method: "POST",
-    body: JSON.stringify({ budget, preference }),
+    body: JSON.stringify({ budget, preference, duration }),
   });
 }
 

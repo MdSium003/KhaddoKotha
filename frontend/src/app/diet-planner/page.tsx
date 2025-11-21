@@ -5,7 +5,34 @@ import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/header";
 import { SiteFooter } from "@/components/footer";
 import { useAuth } from "@/contexts/auth-context";
-import { generateDietPlan, type DietPlan } from "@/lib/api";
+import { generateDietPlan, type DietPlan, type MealItem } from "@/lib/api";
+
+type MealPeriod = "breakfast" | "lunch" | "dinner";
+type MealSourceFilter = "all" | "home" | "store";
+
+const DEFAULT_WEEK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const SOURCE_FILTERS: Array<{ value: MealSourceFilter; label: string }> = [
+    { value: "all", label: "All items" },
+    { value: "home", label: "Home pantry" },
+    { value: "store", label: "Store purchases" }
+];
+
+const PRIORITY_STYLES: Record<NonNullable<MealItem["priority"]>, { label: string; classes: string }> = {
+    green: { label: "Use soon", classes: "bg-emerald-100 text-emerald-700" },
+    yellow: { label: "Plan ahead", classes: "bg-amber-100 text-amber-700" },
+    red: { label: "High priority", classes: "bg-rose-100 text-rose-700" }
+};
+
+function getPriorityBadge(priority?: MealItem["priority"]) {
+    if (!priority) return null;
+    const style = PRIORITY_STYLES[priority];
+    if (!style) return null;
+    return (
+        <span className={`text-xs font-bold px-2 py-1 rounded-full ${style.classes}`}>
+            {style.label}
+        </span>
+    );
+}
 
 export default function DietPlannerPage() {
     const { user, loading: authLoading } = useAuth();
@@ -16,6 +43,23 @@ export default function DietPlannerPage() {
     const [dietPlan, setDietPlan] = useState<DietPlan | null>(null);
     const [dietLoading, setDietLoading] = useState(false);
     const [dietError, setDietError] = useState("");
+    const [selectedDay, setSelectedDay] = useState("Monday");
+    const [sourceFilter, setSourceFilter] = useState<MealSourceFilter>("all");
+
+    useEffect(() => {
+        if (!dietPlan?.weeklyMeals) {
+            setSelectedDay("Monday");
+            return;
+        }
+        const availableDays = Object.keys(dietPlan.weeklyMeals);
+        if (!availableDays.length) {
+            setSelectedDay("Monday");
+            return;
+        }
+        if (!availableDays.includes(selectedDay)) {
+            setSelectedDay(availableDays[0]);
+        }
+    }, [dietPlan, selectedDay]);
 
     useEffect(() => {
         if (!authLoading && !user) {
@@ -23,14 +67,90 @@ export default function DietPlannerPage() {
         }
     }, [user, authLoading, router]);
 
+    const getMealsFor = (plan: DietPlan, mealType: MealPeriod) => {
+        const items = plan.weeklyMeals
+            ? plan.weeklyMeals[selectedDay]?.[mealType] ?? []
+            : plan.meals?.[mealType] ?? [];
+
+        if (sourceFilter === "all") {
+            return items;
+        }
+
+        return items.filter((item) =>
+            sourceFilter === "home" ? item.source === "Home" : item.source === "Store"
+        );
+    };
+
+    const getCurrentMeals = (plan: DietPlan) => {
+        if (plan.weeklyMeals) {
+            return plan.weeklyMeals[selectedDay];
+        }
+        return plan.meals;
+    };
+
+    const getNutritionForDay = (plan: DietPlan) => {
+        if (plan.dailyNutrition?.[selectedDay]) {
+            return plan.dailyNutrition[selectedDay];
+        }
+        return plan.nutritionAnalysis;
+    };
+
+    const renderMealItems = (plan: DietPlan, mealType: MealPeriod) => {
+        const meals = getMealsFor(plan, mealType);
+
+        if (!meals.length) {
+            return (
+                <li className="bg-white/60 rounded-lg p-3 text-sm text-slate-500">
+                    No meals match this filter.
+                </li>
+            );
+        }
+
+        return meals.map((item, i) => (
+            <li key={`${mealType}-${i}`} className="bg-white/60 rounded-lg p-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-medium text-slate-800 flex-1">{item.item}</span>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                        {getPriorityBadge(item.priority)}
+                        <span
+                            className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${item.source === "Home"
+                                ? "bg-blue-200 text-blue-800"
+                                : "bg-amber-200 text-amber-800"
+                                }`}
+                        >
+                            {item.source === "Home" ? "🏠 Home" : `🛒 $${item.cost.toFixed(2)}`}
+                        </span>
+                    </div>
+                </div>
+                {item.note && (
+                    <p className="text-xs text-slate-600 bg-slate-50/70 px-2 py-1 rounded border border-slate-200">
+                        💡 {item.note}
+                    </p>
+                )}
+                {item.substitute && (
+                    <div className="text-xs text-slate-600 bg-yellow-50 px-2 py-1 rounded border border-yellow-200">
+                        🔁 Substitute: {item.substitute}
+                    </div>
+                )}
+            </li>
+        ));
+    };
+
     const handleGenerateDietPlan = async () => {
         setDietError("");
         setDietLoading(true);
         setDietPlan(null);
+        setSourceFilter("all");
 
         try {
-            const plan = await generateDietPlan(dietBudget, dietPreference);
+            const plan = await generateDietPlan(dietBudget, dietPreference, "weekly");
             setDietPlan(plan);
+            if (plan.weeklyMeals) {
+                const days = Object.keys(plan.weeklyMeals);
+                if (days.length) {
+                    setSelectedDay(days.includes("Monday") ? "Monday" : days[0]);
+                }
+            }
         } catch (err) {
             setDietError(err instanceof Error ? err.message : "Failed to generate diet plan");
         } finally {
@@ -187,6 +307,70 @@ export default function DietPlannerPage() {
                     {/* Results Section */}
                     {dietPlan && (
                         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            {dietPlan.planComment && (
+                                <div className="rounded-3xl border border-emerald-100 bg-white/70 backdrop-blur-sm p-6 shadow-md">
+                                    <p className="text-sm font-semibold text-emerald-600 uppercase tracking-wide">Weekly focus</p>
+                                    <p className="text-lg text-slate-800 mt-2">{dietPlan.planComment}</p>
+                                </div>
+                            )}
+
+                            {dietPlan.weeklyMeals && (
+                                <div className="rounded-3xl border border-white/70 bg-white/80 backdrop-blur-sm p-5 shadow-lg space-y-4">
+                                    <div className="flex items-center justify-between flex-wrap gap-3">
+                                        <div>
+                                            <p className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Weekly plan</p>
+                                            <h3 className="text-2xl font-bold text-slate-900">Select a day to view meals</h3>
+                                        </div>
+                                        <span className="text-sm font-medium text-emerald-600">Budget capped per day</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(() => {
+                                            const days = Object.keys(dietPlan.weeklyMeals ?? {});
+                                            const ordered = [
+                                                ...DEFAULT_WEEK_DAYS.filter((day) => days.includes(day)),
+                                                ...days.filter((day) => !DEFAULT_WEEK_DAYS.includes(day))
+                                            ];
+                                            return ordered.map((day) => (
+                                                <button
+                                                    key={day}
+                                                    onClick={() => setSelectedDay(day)}
+                                                    className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all ${selectedDay === day
+                                                        ? "bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-200"
+                                                        : "bg-white text-slate-700 border-slate-200 hover:border-emerald-300"
+                                                        }`}
+                                                >
+                                                    {day}
+                                                </button>
+                                            ));
+                                        })()}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {SOURCE_FILTERS.map((filter) => (
+                                            <button
+                                                key={filter.value}
+                                                onClick={() => setSourceFilter(filter.value)}
+                                                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${sourceFilter === filter.value
+                                                    ? "bg-slate-900 text-white border-slate-900"
+                                                    : "bg-white text-slate-700 border-slate-200 hover:border-slate-400"
+                                                    }`}
+                                            >
+                                                {filter.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {dietPlan.weeklyMeals?.[selectedDay]?.comment && (
+                                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 flex items-start gap-3">
+                                    <div className="text-2xl">🗓️</div>
+                                    <div>
+                                        <p className="text-sm font-semibold text-emerald-700">{selectedDay} focus</p>
+                                        <p className="text-sm text-emerald-900">{dietPlan.weeklyMeals[selectedDay]?.comment}</p>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Meal Cards */}
                             <div className="grid gap-6 md:grid-cols-3">
                                 {/* Breakfast */}
@@ -197,21 +381,11 @@ export default function DietPlannerPage() {
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
                                             </svg>
                                         </div>
-                                        <h3 className="text-xl font-bold text-orange-900">Breakfast</h3>
+                                        <h3 className="text-xl font-bold text-orange-900">
+                                            Breakfast {dietPlan.weeklyMeals && `- ${selectedDay}`}
+                                        </h3>
                                     </div>
-                                    <ul className="space-y-3">
-                                        {dietPlan.meals.breakfast.map((item, i) => (
-                                            <li key={i} className="flex items-start justify-between gap-2 bg-white/60 rounded-lg p-3">
-                                                <span className="text-sm font-medium text-slate-800 flex-1">{item.item}</span>
-                                                <span className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${item.source === 'Home'
-                                                    ? 'bg-blue-200 text-blue-800'
-                                                    : 'bg-amber-200 text-amber-800'
-                                                    }`}>
-                                                    {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
-                                                </span>
-                                            </li>
-                                        ))}
-                                    </ul>
+                                    <ul className="space-y-3">{renderMealItems(dietPlan, "breakfast")}</ul>
                                 </div>
 
                                 {/* Lunch */}
@@ -222,21 +396,11 @@ export default function DietPlannerPage() {
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                             </svg>
                                         </div>
-                                        <h3 className="text-xl font-bold text-emerald-900">Lunch</h3>
+                                        <h3 className="text-xl font-bold text-emerald-900">
+                                            Lunch {dietPlan.weeklyMeals && `- ${selectedDay}`}
+                                        </h3>
                                     </div>
-                                    <ul className="space-y-3">
-                                        {dietPlan.meals.lunch.map((item, i) => (
-                                            <li key={i} className="flex items-start justify-between gap-2 bg-white/60 rounded-lg p-3">
-                                                <span className="text-sm font-medium text-slate-800 flex-1">{item.item}</span>
-                                                <span className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${item.source === 'Home'
-                                                    ? 'bg-blue-200 text-blue-800'
-                                                    : 'bg-amber-200 text-amber-800'
-                                                    }`}>
-                                                    {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
-                                                </span>
-                                            </li>
-                                        ))}
-                                    </ul>
+                                    <ul className="space-y-3">{renderMealItems(dietPlan, "lunch")}</ul>
                                 </div>
 
                                 {/* Dinner */}
@@ -247,25 +411,71 @@ export default function DietPlannerPage() {
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
                                             </svg>
                                         </div>
-                                        <h3 className="text-xl font-bold text-purple-900">Dinner</h3>
+                                        <h3 className="text-xl font-bold text-purple-900">
+                                            Dinner {dietPlan.weeklyMeals && `- ${selectedDay}`}
+                                        </h3>
                                     </div>
-                                    <ul className="space-y-3">
-                                        {dietPlan.meals.dinner.map((item, i) => (
-                                            <li key={i} className="flex items-start justify-between gap-2 bg-white/60 rounded-lg p-3">
-                                                <span className="text-sm font-medium text-slate-800 flex-1">{item.item}</span>
-                                                <span className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${item.source === 'Home'
-                                                    ? 'bg-blue-200 text-blue-800'
-                                                    : 'bg-amber-200 text-amber-800'
-                                                    }`}>
-                                                    {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
-                                                </span>
-                                            </li>
-                                        ))}
-                                    </ul>
+                                    <ul className="space-y-3">{renderMealItems(dietPlan, "dinner")}</ul>
                                 </div>
                             </div>
 
-                            {/* Summary Card */}
+                            {/* Alternatives Section */}
+                            {(() => {
+                                const currentMeals = getCurrentMeals(dietPlan);
+                                const alternatives = currentMeals?.alternatives;
+                                const hasAlternatives = alternatives && (
+                                    (alternatives.breakfast && alternatives.breakfast.length > 0) ||
+                                    (alternatives.lunch && alternatives.lunch.length > 0) ||
+                                    (alternatives.dinner && alternatives.dinner.length > 0)
+                                );
+
+                                if (!hasAlternatives) {
+                                    return null;
+                                }
+
+                                return (
+                                    <div className="rounded-3xl border-2 border-white/80 bg-white/95 backdrop-blur-sm p-6 shadow-2xl">
+                                        <h3 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+                                            <span>🔄</span>
+                                            Alternative Meal Ideas {dietPlan.weeklyMeals && `- ${selectedDay}`}
+                                        </h3>
+                                        <div className="grid gap-4 md:grid-cols-3">
+                                            {alternatives?.breakfast && alternatives.breakfast.length > 0 && (
+                                                <div className="bg-orange-50 rounded-xl p-4 border border-orange-200">
+                                                    <h4 className="font-bold text-orange-900 mb-2 text-sm">Breakfast Alternatives</h4>
+                                                    <ul className="space-y-1">
+                                                        {alternatives.breakfast.map((alt, i) => (
+                                                            <li key={i} className="text-sm text-orange-800">• {alt}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                            {alternatives?.lunch && alternatives.lunch.length > 0 && (
+                                                <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
+                                                    <h4 className="font-bold text-emerald-900 mb-2 text-sm">Lunch Alternatives</h4>
+                                                    <ul className="space-y-1">
+                                                        {alternatives.lunch.map((alt, i) => (
+                                                            <li key={i} className="text-sm text-emerald-800">• {alt}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                            {alternatives?.dinner && alternatives.dinner.length > 0 && (
+                                                <div className="bg-purple-50 rounded-xl p-4 border border-purple-200">
+                                                    <h4 className="font-bold text-purple-900 mb-2 text-sm">Dinner Alternatives</h4>
+                                                    <ul className="space-y-1">
+                                                        {alternatives.dinner.map((alt, i) => (
+                                                            <li key={i} className="text-sm text-purple-800">• {alt}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Plan Summary */}
                             <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
                                 <h3 className="text-2xl font-bold text-slate-900 mb-6">Plan Summary</h3>
 
@@ -273,7 +483,7 @@ export default function DietPlannerPage() {
                                     <div className="space-y-4">
                                         <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
                                             <span className="font-semibold text-slate-700">Total Cost:</span>
-                                            <span className={`text-2xl font-bold ${dietPlan.totalCost <= dietBudget ? 'text-emerald-600' : 'text-red-600'
+                                            <span className={`text-2xl font-bold ${dietPlan.totalCost <= dietBudget ? "text-emerald-600" : "text-red-600"
                                                 }`}>
                                                 ${dietPlan.totalCost.toFixed(2)}
                                             </span>
@@ -321,43 +531,51 @@ export default function DietPlannerPage() {
                             </div>
 
                             {/* Nutrition Analysis */}
-                            {dietPlan.nutritionAnalysis && (
-                                <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
-                                    <h3 className="text-2xl font-bold text-slate-900 mb-6">Nutrition Analysis</h3>
+                            {(() => {
+                                const nutrition = getNutritionForDay(dietPlan);
+                                if (!nutrition) {
+                                    return null;
+                                }
+                                return (
+                                    <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+                                        <h3 className="text-2xl font-bold text-slate-900 mb-6">
+                                            Nutrition Analysis {dietPlan.weeklyMeals && `- ${selectedDay}`}
+                                        </h3>
 
-                                    <div className="grid gap-4 md:grid-cols-5">
-                                        {Object.entries(dietPlan.nutritionAnalysis).map(([key, data]) => (
-                                            <div key={key} className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4">
-                                                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                                                    {key}
-                                                </p>
-                                                <p className="text-2xl font-bold text-slate-900 mb-1">
-                                                    {data.provided}
-                                                    <span className="text-sm font-normal text-slate-600 ml-1">{data.unit}</span>
-                                                </p>
-                                                <div className="w-full bg-slate-200 rounded-full h-2 mb-1">
-                                                    <div
-                                                        className={`h-2 rounded-full ${data.provided >= data.recommended
-                                                            ? 'bg-emerald-500'
-                                                            : data.provided >= data.recommended * 0.7
-                                                                ? 'bg-yellow-500'
-                                                                : 'bg-red-500'
-                                                            }`}
-                                                        style={{ width: `${Math.min((data.provided / data.recommended) * 100, 100)}%` }}
-                                                    ></div>
+                                        <div className="grid gap-4 md:grid-cols-5">
+                                            {Object.entries(nutrition).map(([key, data]) => (
+                                                <div key={key} className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4">
+                                                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                                                        {key}
+                                                    </p>
+                                                    <p className="text-2xl font-bold text-slate-900 mb-1">
+                                                        {data.provided}
+                                                        <span className="text-sm font-normal text-slate-600 ml-1">{data.unit}</span>
+                                                    </p>
+                                                    <div className="w-full bg-slate-200 rounded-full h-2 mb-1">
+                                                        <div
+                                                            className={`h-2 rounded-full ${data.provided >= data.recommended
+                                                                ? "bg-emerald-500"
+                                                                : data.provided >= data.recommended * 0.7
+                                                                    ? "bg-yellow-500"
+                                                                    : "bg-red-500"
+                                                                }`}
+                                                            style={{ width: `${Math.min((data.provided / data.recommended) * 100, 100)}%` }}
+                                                        ></div>
+                                                    </div>
+                                                    <p className="text-xs text-slate-500">
+                                                        Goal: {data.recommended} {data.unit}
+                                                    </p>
                                                 </div>
-                                                <p className="text-xs text-slate-500">
-                                                    Goal: {data.recommended} {data.unit}
-                                                </p>
-                                            </div>
-                                        ))}
-                                    </div>
+                                            ))}
+                                        </div>
 
-                                    <p className="mt-4 text-xs text-slate-400 italic text-center">
-                                        *Nutritional values are approximate and based on standard dietary recommendations for an average adult (2000 kcal/day)
-                                    </p>
-                                </div>
-                            )}
+                                        <p className="mt-4 text-xs text-slate-400 italic text-center">
+                                            *Nutritional values are approximate and based on standard dietary recommendations for an average adult (2000 kcal/day)
+                                        </p>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     )}
                 </main>
