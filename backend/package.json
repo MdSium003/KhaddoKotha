@@ -10,7 +10,10 @@
     "lint": "tsc --noEmit",
     "migrate": "tsx src/db/migrate.ts",
     "migrate:location": "tsx src/db/add-location-to-posts.ts",
-    "reseed-resources": "tsx src/db/reseed-resources.ts"
+    "migrate:ai-features": "tsx src/db/add-ai-features.ts",
+    "reseed-resources": "tsx src/db/reseed-resources.ts",
+    "seed-test": "tsx src/db/seed-test-inventory.ts",
+    "fix-db": "tsx src/db/run-fix.ts"
   },
   "keywords": [],
   "author": "",
