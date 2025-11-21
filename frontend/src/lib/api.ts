@@ -120,6 +120,7 @@ export async function uploadImage(file: File): Promise<string> {
 // OCR types
 export type ExtractedItem = {
   name: string;
+  quantity?: number;
   confidence: number;
 };
 

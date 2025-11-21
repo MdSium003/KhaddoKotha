@@ -332,23 +332,23 @@ export default function InventoryPage() {
 
       // Process extracted data into inventory items
       const items: UserInventoryItemData[] = [];
-      
+
       // Helper function to parse date strings (handle various formats)
       const parseDate = (dateStr: string | undefined): string | undefined => {
         if (!dateStr) return undefined;
-        
+
         // Try to parse various date formats
         // Formats: MM/DD/YYYY, DD-MM-YYYY, YYYY-MM-DD, etc.
         const dateFormats = [
           /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/, // MM/DD/YYYY or DD-MM-YY
         ];
-        
+
         for (const format of dateFormats) {
           const match = dateStr.match(format);
           if (match) {
             const [, part1, part2, part3] = match;
             let month, day, year;
-            
+
             // Try to determine format (assume MM/DD/YYYY for US dates, DD-MM-YYYY for EU)
             if (parseInt(part1) > 12) {
               // EU format: DD-MM-YYYY
@@ -361,7 +361,7 @@ export default function InventoryPage() {
               day = part2.padStart(2, '0');
               year = part3.length === 2 ? `20${part3}` : part3;
             }
-            
+
             // Validate date
             const parsedDate = new Date(`${year}-${month}-${day}`);
             if (!isNaN(parsedDate.getTime())) {
@@ -369,25 +369,29 @@ export default function InventoryPage() {
             }
           }
         }
-        
+
         return undefined;
       };
 
       // Match extracted items with quantities and dates
       for (const extractedItem of result.extractedItems) {
         // Find matching quantity (try to match by position or use first available)
-        const quantity = result.extractedQuantities.length > 0 
-          ? parseFloat(result.extractedQuantities[0].value) || 1 
-          : 1;
-        
+        let quantity = extractedItem.quantity || 1;
+
+        if (!extractedItem.quantity && result.extractedQuantities.length > 0) {
+          // If we have quantities but not on the item, try to use the first one 
+          // (or ideally match by index if we had that info, but for now this preserves existing behavior for fallback)
+          quantity = parseFloat(result.extractedQuantities[0].value) || 1;
+        }
+
         // Find expiration date (prioritize expiration dates)
-        const expirationDateStr = result.extractedDates.find(d => d.type === "expiration")?.value 
-          || result.extractedDates.find(d => d.type === "unknown")?.value 
+        const expirationDateStr = result.extractedDates.find(d => d.type === "expiration")?.value
+          || result.extractedDates.find(d => d.type === "unknown")?.value
           || undefined;
         const expirationDate = parseDate(expirationDateStr);
 
         // Find purchase date
-        const purchaseDateStr = result.extractedDates.find(d => d.type === "purchase")?.value 
+        const purchaseDateStr = result.extractedDates.find(d => d.type === "purchase")?.value
           || undefined;
         const purchaseDate = parseDate(purchaseDateStr);
 

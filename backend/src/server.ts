@@ -525,7 +525,7 @@ app.post("/api/ocr/extract", upload.single("image"), async (req, res) => {
     try {
       // Use Tesseract.js to extract text (completely free, no API key needed)
       console.log("Starting OCR extraction with Tesseract...");
-      
+
       const { data: { text } } = await Tesseract.recognize(
         imagePath,
         'eng', // English language
@@ -544,7 +544,20 @@ app.post("/api/ocr/extract", upload.single("image"), async (req, res) => {
       console.log(`OCR extraction completed. Extracted ${fullText.length} characters.`);
 
       // Parse the extracted text to find items, quantities, and dates
-      const extractedData = parseReceiptText(fullText);
+      let extractedData;
+
+      if (genAI) {
+        try {
+          console.log("Attempting to parse OCR text with Gemini...");
+          extractedData = await parseTextWithGemini(fullText);
+        } catch (error) {
+          console.error("Gemini parsing failed, falling back to regex:", error);
+        }
+      }
+
+      if (!extractedData) {
+        extractedData = parseReceiptText(fullText);
+      }
 
       res.json({
         success: true,
@@ -569,16 +582,64 @@ app.post("/api/ocr/extract", upload.single("image"), async (req, res) => {
   }
 });
 
+async function parseTextWithGemini(text: string): Promise<{
+  items: Array<{ name: string; quantity?: number; confidence: number }>;
+  quantities: Array<{ value: string; unit?: string; confidence: number }>;
+  dates: Array<{ type: "expiration" | "purchase" | "unknown"; value: string; confidence: number }>;
+  summary: string;
+}> {
+  if (!genAI) throw new Error("Gemini not configured");
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  const prompt = `
+    You are an OCR post-processor. Extract food items, quantities, and dates from the following text.
+    The text may contain noise. Look for patterns like "Item Name [Name] Quantity [Qty] Expiration [Date]" or standard receipt formats.
+    
+    Return a JSON object with this structure:
+    {
+      "items": [ { "name": "string", "quantity": number } ],
+      "dates": [ { "value": "string (YYYY-MM-DD or original format)", "type": "expiration" | "purchase" | "unknown" } ]
+    }
+    
+    Text:
+    ${text}
+  `;
+
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  const jsonText = response.text().replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+
+  const parsed = JSON.parse(jsonText);
+  const items = Array.isArray(parsed.items) ? parsed.items.map((i: any) => ({
+    name: i.name,
+    quantity: typeof i.quantity === 'number' ? i.quantity : 1,
+    confidence: 0.95
+  })) : [];
+
+  const dates = Array.isArray(parsed.dates) ? parsed.dates.map((d: any) => ({
+    type: d.type || "unknown",
+    value: d.value,
+    confidence: 0.95
+  })) : [];
+
+  return {
+    items,
+    quantities: [], // Gemini already applied quantities to items
+    dates,
+    summary: `Extracted ${items.length} items and ${dates.length} dates using Gemini AI`
+  };
+}
+
 // Helper function to parse receipt/food label text
 function parseReceiptText(text: string): {
-  items: Array<{ name: string; confidence: number }>;
+  items: Array<{ name: string; quantity?: number; confidence: number }>;
   quantities: Array<{ value: string; unit?: string; confidence: number }>;
   dates: Array<{ type: "expiration" | "purchase" | "unknown"; value: string; confidence: number }>;
   summary: string;
 } {
   const lines = text.split("\n").filter((line) => line.trim().length > 0);
-  
-  const items: Array<{ name: string; confidence: number }> = [];
+
+  const items: Array<{ name: string; quantity?: number; confidence: number }> = [];
   const quantities: Array<{ value: string; unit?: string; confidence: number }> = [];
   const dates: Array<{ type: "expiration" | "purchase" | "unknown"; value: string; confidence: number }> = [];
 
@@ -604,28 +665,30 @@ function parseReceiptText(text: string): {
   ];
 
   // Extract items (lines that contain food keywords)
-  for (const line of lines) {
-    const lowerLine = line.toLowerCase();
-    for (const keyword of foodKeywords) {
-      if (lowerLine.includes(keyword)) {
-        // Try to extract item name (remove prices, quantities)
-        const cleaned = line
-          .replace(/\$[\d.,]+/g, "")
-          .replace(/\d+[\/\-]\d+[\/\-]\d+/g, "")
-          .replace(/\d+(?:\.\d+)?\s*(kg|g|lb|oz|liter|l|ml|pack|pcs|pieces|units?)/gi, "")
-          .trim();
-        
-        if (cleaned.length > 2 && cleaned.length < 50) {
-          items.push({ name: cleaned, confidence: 0.7 });
-        }
-      }
-    }
-  }
-
   // Extract dates
   for (const line of lines) {
+    // Check for specific "Item Name ... Quantity ... Expiration ..." format
+    const customMatch = line.match(/Item Name\s+(.+?)\s+Quantity\s+(\d+(?:\.\d+)?)\s+Expiration\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})(?:\s+Notes\s+(.+?))?(?:\s+Checked\.\.)?/i);
+
+    if (customMatch) {
+      items.push({
+        name: (customMatch[1] || "").trim(),
+        quantity: parseFloat(customMatch[2] || "0"),
+        confidence: 0.95
+      });
+
+      if (customMatch[3]) {
+        dates.push({
+          type: "expiration",
+          value: customMatch[3],
+          confidence: 0.95
+        });
+      }
+      continue;
+    }
+
     const lowerLine = line.toLowerCase();
-    
+
     // Check for expiration dates
     if (/\b(exp|expiration|expires|use by|best before|sell by)\b/i.test(line)) {
       const dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
@@ -637,7 +700,7 @@ function parseReceiptText(text: string): {
         });
       }
     }
-    
+
     // Check for purchase dates
     if (/\b(purchase|purchased|bought|date)\b/i.test(lowerLine)) {
       const dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
@@ -669,7 +732,7 @@ function parseReceiptText(text: string): {
         const value = match[1];
         const unit = match[2]?.toLowerCase();
         quantities.push({
-          value,
+          value: value || "0",
           unit,
           confidence: 0.7,
         });
@@ -722,8 +785,8 @@ app.post("/api/food-usage", async (req, res) => {
       : new Date();
 
     const [log] = await sql`
-      INSERT INTO food_usage_logs (user_id, item_name, quantity, category, usage_date, image_url)
-      VALUES (${decoded.userId}, ${body.itemName}, ${body.quantity}, ${body.category}, ${usageDate.toISOString().split('T')[0]}, ${body.imageUrl || null})
+      INSERT INTO food_usage_logs(user_id, item_name, quantity, category, usage_date, image_url)
+  VALUES(${decoded.userId}, ${body.itemName}, ${body.quantity}, ${body.category}, ${usageDate.toISOString().split('T')[0]}, ${body.imageUrl || null})
       RETURNING id, item_name, quantity, category, usage_date, image_url, created_at
     `;
 
@@ -781,10 +844,10 @@ app.post("/api/food-usage/bulk", async (req, res) => {
     for (const log of body.logs) {
       try {
         const [inserted] = await sql`
-          INSERT INTO food_usage_logs (user_id, item_name, quantity, category, usage_date, image_url)
-          VALUES (${decoded.userId}, ${log.itemName}, ${log.quantity}, ${log.category}, ${dateStr}, ${log.imageUrl || null})
+          INSERT INTO food_usage_logs(user_id, item_name, quantity, category, usage_date, image_url)
+  VALUES(${decoded.userId}, ${log.itemName}, ${log.quantity}, ${log.category}, ${dateStr}, ${log.imageUrl || null})
           RETURNING id, item_name, quantity, category, usage_date, image_url, created_at
-        `;
+    `;
         insertedLogs.push({
           id: inserted.id,
           itemName: inserted.item_name,
@@ -795,7 +858,7 @@ app.post("/api/food-usage/bulk", async (req, res) => {
           createdAt: inserted.created_at,
         });
       } catch (err) {
-        console.error(`Failed to insert log for ${log.itemName}:`, err);
+        console.error(`Failed to insert log for ${log.itemName}: `, err);
       }
     }
 
@@ -912,17 +975,17 @@ app.post("/api/user-inventory", async (req, res) => {
       .parse(req.body);
 
     const [item] = await sql`
-      INSERT INTO user_inventory (user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
-      VALUES (
-        ${decoded.userId},
-        ${body.itemName},
-        ${body.quantity},
-        ${body.category},
-        ${body.purchaseDate || null},
-        ${body.expirationDate || null},
-        ${body.notes || null},
-        ${body.imageUrl || null}
-      )
+      INSERT INTO user_inventory(user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
+  VALUES(
+    ${decoded.userId},
+    ${body.itemName},
+    ${body.quantity},
+    ${body.category},
+    ${body.purchaseDate || null},
+    ${body.expirationDate || null},
+    ${body.notes || null},
+    ${body.imageUrl || null}
+  )
       RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
     `;
 
@@ -980,19 +1043,19 @@ app.post("/api/user-inventory/bulk", async (req, res) => {
     for (const item of body.items) {
       try {
         const [inserted] = await sql`
-          INSERT INTO user_inventory (user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
-          VALUES (
-            ${decoded.userId},
-            ${item.itemName},
-            ${item.quantity},
-            ${item.category},
-            ${item.purchaseDate || null},
-            ${item.expirationDate || null},
-            ${item.notes || null},
-            ${item.imageUrl || null}
-          )
+          INSERT INTO user_inventory(user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
+  VALUES(
+    ${decoded.userId},
+    ${item.itemName},
+    ${item.quantity},
+    ${item.category},
+    ${item.purchaseDate || null},
+    ${item.expirationDate || null},
+    ${item.notes || null},
+    ${item.imageUrl || null}
+  )
           RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
-        `;
+    `;
         insertedItems.push({
           id: inserted.id,
           itemName: inserted.item_name,
@@ -1006,7 +1069,7 @@ app.post("/api/user-inventory/bulk", async (req, res) => {
           updatedAt: inserted.updated_at,
         });
       } catch (err) {
-        console.error(`Failed to insert item ${item.itemName}:`, err);
+        console.error(`Failed to insert item ${item.itemName}: `, err);
       }
     }
 
@@ -1052,36 +1115,36 @@ app.put("/api/user-inventory/:id", async (req, res) => {
 
     // Update fields individually if provided
     if (body.itemName !== undefined) {
-      await sql`UPDATE user_inventory SET item_name = ${body.itemName} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET item_name = ${body.itemName} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
     if (body.quantity !== undefined) {
-      await sql`UPDATE user_inventory SET quantity = ${body.quantity} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET quantity = ${body.quantity} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
     if (body.category !== undefined) {
-      await sql`UPDATE user_inventory SET category = ${body.category} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET category = ${body.category} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
     if (body.purchaseDate !== undefined) {
-      await sql`UPDATE user_inventory SET purchase_date = ${body.purchaseDate || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET purchase_date = ${body.purchaseDate || null} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
     if (body.expirationDate !== undefined) {
-      await sql`UPDATE user_inventory SET expiration_date = ${body.expirationDate || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET expiration_date = ${body.expirationDate || null} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
     if (body.notes !== undefined) {
-      await sql`UPDATE user_inventory SET notes = ${body.notes || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET notes = ${body.notes || null} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
     if (body.imageUrl !== undefined) {
-      await sql`UPDATE user_inventory SET image_url = ${body.imageUrl || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+      await sql`UPDATE user_inventory SET image_url = ${body.imageUrl || null} WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
     }
 
     // Always update the updated_at timestamp
-    await sql`UPDATE user_inventory SET updated_at = NOW() WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+    await sql`UPDATE user_inventory SET updated_at = NOW() WHERE id = ${itemId} AND user_id = ${decoded.userId} `;
 
     // Fetch the updated item
     const [updatedItem] = await sql`
       SELECT id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
       FROM user_inventory
       WHERE id = ${itemId} AND user_id = ${decoded.userId}
-    `;
+  `;
 
     if (!updatedItem) {
       return res.status(404).json({ message: "Item not found" });
@@ -1129,7 +1192,7 @@ app.delete("/api/user-inventory/:id", async (req, res) => {
     await sql`
       DELETE FROM user_inventory 
       WHERE id = ${itemId} AND user_id = ${decoded.userId}
-    `;
+  `;
 
     res.json({ message: "Item deleted successfully" });
   } catch (error) {
@@ -1179,7 +1242,7 @@ app.get("/api/notifications", async (req, res) => {
     // Create expired notification
     if (expiredItems.length > 0) {
       notifications.push({
-        id: `expired-${Date.now()}`,
+        id: `expired - ${Date.now()} `,
         type: "expired",
         message: expiredItems.length === 1
           ? `${expiredItems[0].item_name} has expired`
@@ -1196,7 +1259,7 @@ app.get("/api/notifications", async (req, res) => {
     // Create expiring soon notification
     if (expiringSoonItems.length > 0) {
       notifications.push({
-        id: `expiring-${Date.now()}`,
+        id: `expiring - ${Date.now()} `,
         type: "expiring",
         message: expiringSoonItems.length === 1
           ? `${expiringSoonItems[0].item_name} is expiring soon`
@@ -1241,56 +1304,56 @@ app.post("/api/waste-to-asset", async (req, res) => {
     const prompt = multipleItems
       ? `I have the following wasted or overripe items: ${itemList}.
 
-First, determine if these items can be combined together in a recipe or project. If they can be combined, generate ideas that use them together. If they cannot be combined, generate separate ideas.
+  First, determine if these items can be combined together in a recipe or project.If they can be combined, generate ideas that use them together.If they cannot be combined, generate separate ideas.
 
 Return your response as a JSON object with this exact structure:
-{
-  "canCombine": true or false,
-  "recipeIdeas": [
-    {
-      "title": "Short catchy title (max 5 words)",
-      "summary": "Brief one-sentence description (max 20 words)",
-      "details": "Detailed step-by-step instructions (3-5 sentences)"
-    },
-    // ... 2 more recipe ideas (3 total)
-  ],
-  "nonRecipeIdeas": [
-    {
-      "title": "Short catchy title (max 5 words)",
-      "summary": "Brief one-sentence description (max 20 words)",
-      "details": "Detailed step-by-step instructions (3-5 sentences)"
-    },
-    // ... 2 more non-recipe ideas (3 total)
-  ]
-}
+  {
+    "canCombine": true or false,
+      "recipeIdeas": [
+        {
+          "title": "Short catchy title (max 5 words)",
+          "summary": "Brief one-sentence description (max 20 words)",
+          "details": "Detailed step-by-step instructions (3-5 sentences)"
+        },
+        // ... 2 more recipe ideas (3 total)
+      ],
+        "nonRecipeIdeas": [
+          {
+            "title": "Short catchy title (max 5 words)",
+            "summary": "Brief one-sentence description (max 20 words)",
+            "details": "Detailed step-by-step instructions (3-5 sentences)"
+          },
+          // ... 2 more non-recipe ideas (3 total)
+        ]
+  }
 
-Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gardening, DIY, composting, beauty treatments, etc.). Make them creative, practical, and safe.`
+Generate exactly 3 recipe ideas(food / drink recipes) and 3 non - recipe ideas(gardening, DIY, composting, beauty treatments, etc.).Make them creative, practical, and safe.`
       : `I have some wasted or overripe ${body.itemNames[0]}.
 
 Generate creative, practical, and safe ways to repurpose it.
 
 Return your response as a JSON object with this exact structure:
-{
-  "canCombine": true,
-  "recipeIdeas": [
-    {
-      "title": "Short catchy title (max 5 words)",
-      "summary": "Brief one-sentence description (max 20 words)",
-      "details": "Detailed step-by-step instructions (3-5 sentences)"
-    },
-    // ... 2 more recipe ideas (3 total)
-  ],
-  "nonRecipeIdeas": [
-    {
-      "title": "Short catchy title (max 5 words)",
-      "summary": "Brief one-sentence description (max 20 words)",
-      "details": "Detailed step-by-step instructions (3-5 sentences)"
-    },
-    // ... 2 more non-recipe ideas (3 total)
-  ]
-}
+  {
+    "canCombine": true,
+      "recipeIdeas": [
+        {
+          "title": "Short catchy title (max 5 words)",
+          "summary": "Brief one-sentence description (max 20 words)",
+          "details": "Detailed step-by-step instructions (3-5 sentences)"
+        },
+        // ... 2 more recipe ideas (3 total)
+      ],
+        "nonRecipeIdeas": [
+          {
+            "title": "Short catchy title (max 5 words)",
+            "summary": "Brief one-sentence description (max 20 words)",
+            "details": "Detailed step-by-step instructions (3-5 sentences)"
+          },
+          // ... 2 more non-recipe ideas (3 total)
+        ]
+  }
 
-Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gardening, DIY, composting, beauty treatments, etc.).`;
+Generate exactly 3 recipe ideas(food / drink recipes) and 3 non - recipe ideas(gardening, DIY, composting, beauty treatments, etc.).`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -1300,7 +1363,7 @@ Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gar
     let parsedData;
     try {
       // Remove markdown code blocks if present
-      const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const cleanedText = text.replace(/```json\n ? /g, "").replace(/```\n?/g, "").trim();
       parsedData = JSON.parse(cleanedText);
     } catch (parseError) {
       console.error("Failed to parse AI response as JSON:", text);
@@ -1348,7 +1411,7 @@ Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gar
   } catch (error) {
     console.error("Waste to Asset AI failed. Error details:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-    res.status(500).json({ message: `AI Error: ${errorMessage}` });
+    res.status(500).json({ message: `AI Error: ${errorMessage} ` });
   }
 });
 
@@ -1360,11 +1423,11 @@ Generate exactly 3 recipe ideas (food/drink recipes) and 3 non-recipe ideas (gar
 app.get("/api/community/posts", async (req, res) => {
   try {
     const posts = await sql`
-      SELECT 
-        cp.*,
-        u.name as author_name,
-        u.avatar_url,
-        COUNT(pc.id)::int as comment_count
+  SELECT
+  cp.*,
+    u.name as author_name,
+    u.avatar_url,
+    COUNT(pc.id):: int as comment_count
       FROM community_posts cp
       INNER JOIN users u ON cp.user_id = u.id
       LEFT JOIN post_comments pc ON cp.id = pc.post_id
@@ -1400,15 +1463,15 @@ app.post("/api/community/posts", async (req, res) => {
     }).parse(req.body);
 
     const result = await sql`
-      INSERT INTO community_posts (user_id, post_type, food_name, quantity, unit, target_date, details)
-      VALUES (${decoded.userId}, ${body.postType}, ${body.foodName}, ${body.quantity}, ${body.unit || null}, ${body.targetDate}, ${body.details || null})
-      RETURNING *
+      INSERT INTO community_posts(user_id, post_type, food_name, quantity, unit, target_date, details)
+  VALUES(${decoded.userId}, ${body.postType}, ${body.foodName}, ${body.quantity}, ${body.unit || null}, ${body.targetDate}, ${body.details || null})
+  RETURNING *
     `;
 
     const post = result[0];
 
     // Fetch user info to include in response
-    const users = await sql`SELECT name, avatar_url FROM users WHERE id = ${decoded.userId}`;
+    const users = await sql`SELECT name, avatar_url FROM users WHERE id = ${decoded.userId} `;
     const enrichedPost = {
       ...post,
       author_name: users[0]?.name,
@@ -1429,24 +1492,24 @@ app.get("/api/community/posts/:id", async (req, res) => {
     const postId = parseInt(req.params.id);
 
     const posts = await sql`
-      SELECT 
-        cp.*,
-        u.name as author_name,
-        u.avatar_url
+  SELECT
+  cp.*,
+    u.name as author_name,
+    u.avatar_url
       FROM community_posts cp
       INNER JOIN users u ON cp.user_id = u.id
       WHERE cp.id = ${postId}
-    `;
+  `;
 
     if (posts.length === 0) {
       return res.status(404).json({ message: "Post not found" });
     }
 
     const comments = await sql`
-      SELECT 
-        pc.*,
-        u.name as author_name,
-        u.avatar_url
+  SELECT
+  pc.*,
+    u.name as author_name,
+    u.avatar_url
       FROM post_comments pc
       INNER JOIN users u ON pc.user_id = u.id
       WHERE pc.post_id = ${postId}
@@ -1474,14 +1537,14 @@ app.delete("/api/community/posts/:id", async (req, res) => {
 
     // Check if post belongs to user
     const posts = await sql`
-      SELECT * FROM community_posts WHERE id = ${postId} AND user_id = ${decoded.userId}
-    `;
+  SELECT * FROM community_posts WHERE id = ${postId} AND user_id = ${decoded.userId}
+  `;
 
     if (posts.length === 0) {
       return res.status(403).json({ message: "Not authorized to delete this post" });
     }
 
-    await sql`DELETE FROM community_posts WHERE id = ${postId}`;
+    await sql`DELETE FROM community_posts WHERE id = ${postId} `;
     res.json({ message: "Post deleted successfully" });
   } catch (error) {
     console.error("Delete post failed", error);
@@ -1506,15 +1569,15 @@ app.post("/api/community/posts/:id/comments", async (req, res) => {
     }).parse(req.body);
 
     const result = await sql`
-      INSERT INTO post_comments (post_id, user_id, comment_text)
-      VALUES (${postId}, ${decoded.userId}, ${body.commentText})
-      RETURNING *
+      INSERT INTO post_comments(post_id, user_id, comment_text)
+  VALUES(${postId}, ${decoded.userId}, ${body.commentText})
+  RETURNING *
     `;
 
     const comment = result[0];
 
     // Get author info
-    const users = await sql`SELECT name, avatar_url FROM users WHERE id = ${decoded.userId}`;
+    const users = await sql`SELECT name, avatar_url FROM users WHERE id = ${decoded.userId} `;
     const enrichedComment = {
       ...comment,
       author_name: users[0].name,
@@ -1542,14 +1605,14 @@ app.delete("/api/community/comments/:id", async (req, res) => {
 
     // Check if comment belongs to user
     const comments = await sql`
-      SELECT * FROM post_comments WHERE id = ${commentId} AND user_id = ${decoded.userId}
-    `;
+  SELECT * FROM post_comments WHERE id = ${commentId} AND user_id = ${decoded.userId}
+  `;
 
     if (comments.length === 0) {
       return res.status(403).json({ message: "Not authorized to delete this comment" });
     }
 
-    await sql`DELETE FROM post_comments WHERE id = ${commentId}`;
+    await sql`DELETE FROM post_comments WHERE id = ${commentId} `;
     res.json({ message: "Comment deleted successfully" });
   } catch (error) {
     console.error("Delete comment failed", error);
@@ -1577,30 +1640,30 @@ app.post("/api/chatbot", async (req, res) => {
 
     // Build conversation history for context
     const historyContext = body.conversationHistory?.map(msg =>
-      `${msg.role === 'user' ? 'User' : 'KhaddoKotha'}: ${msg.content}`
+      `${msg.role === 'user' ? 'User' : 'KhaddoKotha'}: ${msg.content} `
     ).join('\n') || '';
 
     const systemPrompt = `You are KhaddoKotha AI Assistant, a helpful and friendly chatbot for a food management and sustainability platform. 
 
 Your role is to:
-- Help users reduce food waste and save money
-- Provide tips on food preservation and storage
-- Suggest recipes for ingredients they have
-- Answer questions about food expiration and safety
-- Promote sustainable food consumption practices
-- Guide users on how to use the platform features
+  - Help users reduce food waste and save money
+    - Provide tips on food preservation and storage
+      - Suggest recipes for ingredients they have
+        - Answer questions about food expiration and safety
+          - Promote sustainable food consumption practices
+            - Guide users on how to use the platform features
 
-Be concise, friendly, and helpful. Keep responses under 150 words unless detailed instructions are needed.
+Be concise, friendly, and helpful.Keep responses under 150 words unless detailed instructions are needed.
 
 Platform Features:
-- Smart Inventory: Track food items with expiration dates
-- Usage Analytics: Monitor consumption patterns
-- Food Preservative Guide: Learn preservation methods
-- Waste to Asset: Get creative ideas to repurpose food
-- Community: Share and donate food
+  - Smart Inventory: Track food items with expiration dates
+    - Usage Analytics: Monitor consumption patterns
+      - Food Preservative Guide: Learn preservation methods
+        - Waste to Asset: Get creative ideas to repurpose food
+          - Community: Share and donate food
 
-${historyContext ? `Previous conversation:\n${historyContext}\n\n` : ''}User: ${body.message}
-KhaddoKotha:`;
+${historyContext ? `Previous conversation:\n${historyContext}\n\n` : ''} User: ${body.message}
+  KhaddoKotha: `;
 
     const result = await model.generateContent(systemPrompt);
     const response = await result.response;
@@ -1653,30 +1716,30 @@ app.post("/api/diet-planner/generate", async (req, res) => {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const prompt = `
-      You are a smart diet planner. Create a one-person daily meal plan (Breakfast, Lunch, Dinner) based on the following constraints:
+      You are a smart diet planner.Create a one - person daily meal plan(Breakfast, Lunch, Dinner) based on the following constraints:
 
-      **User Inputs:**
-      - Daily Budget: $${body.budget}
-      - Meal Preference: ${body.preference}
+      ** User Inputs:**
+    - Daily Budget: $${body.budget}
+  - Meal Preference: ${body.preference}
 
-      **Inventories:**
-      1. **Home Inventory** (Cost: $0, Prioritize these to reduce waste):
+      ** Inventories:**
+    1. ** Home Inventory ** (Cost: $0, Prioritize these to reduce waste):
          ${JSON.stringify(userInventory)}
-      2. **General Store Inventory** (Cost: specified per unit, use to fill gaps):
+  2. ** General Store Inventory ** (Cost: specified per unit, use to fill gaps):
          ${JSON.stringify(storeInventory)}
 
-      **Rules:**
-      1. **Categorize Foods:** Ensure a balance of Carb, Protein, Vegetable, Fruit/Dairy/Extras.
-      2. **Prioritize Home Items:** Use available home items first.
-      3. **Fill Gaps:** Buy cheapest suitable items from store inventory if needed.
-      4. **Budget:** Total cost of STORE items must be <= $${body.budget}.
-      5. **Preference:** 
-         - Veg: No meat/fish/egg.
-         - Non-Veg: Allow meat/egg/fish.
+      ** Rules:**
+    1. ** Categorize Foods:** Ensure a balance of Carb, Protein, Vegetable, Fruit / Dairy / Extras.
+      2. ** Prioritize Home Items:** Use available home items first.
+      3. ** Fill Gaps:** Buy cheapest suitable items from store inventory if needed.
+      4. ** Budget:** Total cost of STORE items must be <= $${body.budget}.
+  5. ** Preference:**
+    - Veg: No meat / fish / egg.
+         - Non - Veg: Allow meat / egg / fish.
          - Balanced: Mix freely.
-      7. **Nutrition Analysis:** Calculate approximate total nutrition (Calories, Protein, Carbs, Fats, Fiber) for the entire day's plan. Compare these with standard daily recommendations for an average adult (approx. 2000kcal).
+      7. ** Nutrition Analysis:** Calculate approximate total nutrition(Calories, Protein, Carbs, Fats, Fiber) for the entire day's plan. Compare these with standard daily recommendations for an average adult (approx. 2000kcal).
 
-      **Output Format (JSON only):**
+    ** Output Format(JSON only):**
       {
         "meals": {
           "breakfast": [{ "item": "Name", "source": "Home" | "Store", "cost": 0.00 }],
@@ -1696,13 +1759,13 @@ app.post("/api/diet-planner/generate", async (req, res) => {
           "fiber": { "provided": 0, "recommended": 28, "unit": "g" }
         }
       }
-    `;
+        `;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
 
-    const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const cleanedText = text.replace(/```json\n ? /g, "").replace(/```\n?/g, "").trim();
     const dietPlan = JSON.parse(cleanedText);
 
     res.json(dietPlan);

@@ -41,7 +41,7 @@ export default function DailyTrackerPage() {
     const [csvLoading, setCsvLoading] = useState(false);
     const [error, setError] = useState("");
     const [success, setSuccess] = useState("");
-    
+
     // OCR state for daily tracker
     const [ocrFileDaily, setOcrFileDaily] = useState<File | null>(null);
     const [ocrLoadingDaily, setOcrLoadingDaily] = useState(false);
@@ -204,13 +204,16 @@ export default function DailyTrackerPage() {
 
             // Process extracted data into usage logs
             const logs: FoodUsageLogData[] = [];
-            
-            for (const extractedItem of result.extractedItems) {
+
+            for (let i = 0; i < result.extractedItems.length; i++) {
+                const extractedItem = result.extractedItems[i];
                 // Find matching quantity
-                const quantity = result.extractedQuantities.length > 0 
-                    ? parseFloat(result.extractedQuantities[0].value) || 1 
-                    : 1;
-                
+                let quantity = extractedItem.quantity || 1;
+
+                if (!extractedItem.quantity && i < result.extractedQuantities.length) {
+                    quantity = parseFloat(result.extractedQuantities[i].value) || 1;
+                }
+
                 // Try to determine category from item name
                 const lowerName = extractedItem.name.toLowerCase();
                 let category = "other";
@@ -546,8 +549,8 @@ export default function DailyTrackerPage() {
                                     <button
                                         onClick={() => setFoodUsageMethod("manual")}
                                         className={`flex flex-col items-center gap-2 rounded-xl px-4 py-4 text-sm font-semibold transition-all ${foodUsageMethod === "manual"
-                                                ? "bg-emerald-600 text-white shadow-lg scale-105"
-                                                : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
+                                            ? "bg-emerald-600 text-white shadow-lg scale-105"
+                                            : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
                                             }`}
                                     >
                                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -558,8 +561,8 @@ export default function DailyTrackerPage() {
                                     <button
                                         onClick={() => setFoodUsageMethod("dropdown")}
                                         className={`flex flex-col items-center gap-2 rounded-xl px-4 py-4 text-sm font-semibold transition-all ${foodUsageMethod === "dropdown"
-                                                ? "bg-emerald-600 text-white shadow-lg scale-105"
-                                                : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
+                                            ? "bg-emerald-600 text-white shadow-lg scale-105"
+                                            : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
                                             }`}
                                     >
                                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -570,8 +573,8 @@ export default function DailyTrackerPage() {
                                     <button
                                         onClick={() => setFoodUsageMethod("csv")}
                                         className={`flex flex-col items-center gap-2 rounded-xl px-4 py-4 text-sm font-semibold transition-all ${foodUsageMethod === "csv"
-                                                ? "bg-emerald-600 text-white shadow-lg scale-105"
-                                                : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
+                                            ? "bg-emerald-600 text-white shadow-lg scale-105"
+                                            : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
                                             }`}
                                     >
                                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -582,8 +585,8 @@ export default function DailyTrackerPage() {
                                     <button
                                         onClick={() => setFoodUsageMethod("ocr")}
                                         className={`flex flex-col items-center gap-2 rounded-xl px-4 py-4 text-sm font-semibold transition-all ${foodUsageMethod === "ocr"
-                                                ? "bg-emerald-600 text-white shadow-lg scale-105"
-                                                : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
+                                            ? "bg-emerald-600 text-white shadow-lg scale-105"
+                                            : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
                                             }`}
                                     >
                                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -923,99 +926,100 @@ export default function DailyTrackerPage() {
 
                 <SiteFooter />
             </div>
-        </div>
 
-        {/* Modal for OCR extracted logs confirmation */}
-        {showOcrModalDaily && ocrResultDaily && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white rounded-2xl p-8 max-w-4xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
-                    <div className="flex justify-between items-start mb-6">
-                        <div>
-                            <h2 className="text-2xl font-bold text-slate-900">Review Extracted Food Usage</h2>
-                            <p className="text-sm text-slate-600 mt-1">
-                                {ocrResultDaily.summary} • Please review and edit the extracted data before adding.
-                            </p>
-                        </div>
-                        <button
-                            onClick={() => setShowOcrModalDaily(false)}
-                            className="text-slate-400 hover:text-slate-600"
-                        >
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    </div>
 
-                    {ocrExtractedLogs.length === 0 ? (
-                        <div className="text-center py-8">
-                            <p className="text-slate-600 mb-4">No items could be extracted from the image.</p>
-                            <p className="text-sm text-slate-500 mb-4">Extracted text:</p>
-                            <div className="bg-slate-50 p-4 rounded-lg text-left text-sm text-slate-600 max-h-40 overflow-y-auto">
-                                {ocrResultDaily.fullText || "No text found"}
+            {/* Modal for OCR extracted logs confirmation */}
+            {showOcrModalDaily && ocrResultDaily && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl p-8 max-w-4xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-900">Review Extracted Food Usage</h2>
+                                <p className="text-sm text-slate-600 mt-1">
+                                    {ocrResultDaily.summary} • Please review and edit the extracted data before adding.
+                                </p>
                             </div>
+                            <button
+                                onClick={() => setShowOcrModalDaily(false)}
+                                className="text-slate-400 hover:text-slate-600"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
                         </div>
-                    ) : (
-                        <div className="space-y-4 mb-6">
-                            {ocrExtractedLogs.map((log, index) => (
-                                <div key={index} className="p-4 bg-slate-50 rounded-lg space-y-3 border border-slate-200">
-                                    <div className="flex justify-between items-center">
-                                        <h3 className="font-semibold text-slate-700">Entry {index + 1}</h3>
-                                        <button
-                                            onClick={() => handleOcrRemoveLog(index)}
-                                            className="text-red-500 hover:text-red-700 text-sm"
-                                        >
-                                            Remove
-                                        </button>
-                                    </div>
 
-                                    <input
-                                        type="text"
-                                        placeholder="Item Name"
-                                        value={log.itemName}
-                                        onChange={(e) => handleOcrLogsChange(index, "itemName", e.target.value)}
-                                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                    />
+                        {ocrExtractedLogs.length === 0 ? (
+                            <div className="text-center py-8">
+                                <p className="text-slate-600 mb-4">No items could be extracted from the image.</p>
+                                <p className="text-sm text-slate-500 mb-4">Extracted text:</p>
+                                <div className="bg-slate-50 p-4 rounded-lg text-left text-sm text-slate-600 max-h-40 overflow-y-auto">
+                                    {ocrResultDaily.fullText || "No text found"}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-4 mb-6">
+                                {ocrExtractedLogs.map((log, index) => (
+                                    <div key={index} className="p-4 bg-slate-50 rounded-lg space-y-3 border border-slate-200">
+                                        <div className="flex justify-between items-center">
+                                            <h3 className="font-semibold text-slate-700">Entry {index + 1}</h3>
+                                            <button
+                                                onClick={() => handleOcrRemoveLog(index)}
+                                                className="text-red-500 hover:text-red-700 text-sm"
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
 
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <input
-                                            type="number"
-                                            placeholder="Quantity"
-                                            value={log.quantity}
-                                            onChange={(e) => handleOcrLogsChange(index, "quantity", parseFloat(e.target.value) || 0)}
-                                            min="0.01"
-                                            step="0.01"
-                                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                        />
                                         <input
                                             type="text"
-                                            placeholder="Category"
-                                            value={log.category}
-                                            onChange={(e) => handleOcrLogsChange(index, "category", e.target.value)}
+                                            placeholder="Item Name"
+                                            value={log.itemName}
+                                            onChange={(e) => handleOcrLogsChange(index, "itemName", e.target.value)}
                                             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                                         />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
 
-                    <div className="flex gap-3">
-                        <button
-                            onClick={() => setShowOcrModalDaily(false)}
-                            className="flex-1 py-3 border-2 border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-50"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            onClick={handleAddOcrLogs}
-                            disabled={loading || ocrExtractedLogs.length === 0}
-                            className="flex-1 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50"
-                        >
-                            {loading ? "Adding..." : `Add ${ocrExtractedLogs.length} Entry(ies)`}
-                        </button>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <input
+                                                type="number"
+                                                placeholder="Quantity"
+                                                value={log.quantity}
+                                                onChange={(e) => handleOcrLogsChange(index, "quantity", parseFloat(e.target.value) || 0)}
+                                                min="0.01"
+                                                step="0.01"
+                                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                            <input
+                                                type="text"
+                                                placeholder="Category"
+                                                value={log.category}
+                                                onChange={(e) => handleOcrLogsChange(index, "category", e.target.value)}
+                                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowOcrModalDaily(false)}
+                                className="flex-1 py-3 border-2 border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleAddOcrLogs}
+                                disabled={loading || ocrExtractedLogs.length === 0}
+                                className="flex-1 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                                {loading ? "Adding..." : `Add ${ocrExtractedLogs.length} Entry(ies)`}
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
-        )}
+            )}
+        </div>
     );
 }
