@@ -685,30 +685,6 @@ export type MealItem = {
   item: string;
   source: "Home" | "Store";
   cost: number;
-<<<<<<< Updated upstream
-=======
-  priority?: "green" | "yellow" | "red";
-  substitute?: string;
-};
-
-export type NutritionInfo = {
-  calories: { provided: number; recommended: number; unit: string };
-  protein: { provided: number; recommended: number; unit: string };
-  carbs: { provided: number; recommended: number; unit: string };
-  fats: { provided: number; recommended: number; unit: string };
-  fiber: { provided: number; recommended: number; unit: string };
-};
-
-export type DayMeals = {
-  breakfast: MealItem[];
-  lunch: MealItem[];
-  dinner: MealItem[];
-  alternatives?: {
-    breakfast?: string[];
-    lunch?: string[];
-    dinner?: string[];
-  };
->>>>>>> Stashed changes
 };
 
 export type DietPlan = {
