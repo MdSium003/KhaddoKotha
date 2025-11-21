@@ -11,6 +11,7 @@ const navigation = [
   { label: "Waste to Asset", href: "/waste-to-asset" },
   { label: "Diet Planner", href: "/diet-planner" },
   { label: "Community", href: "/community" },
+  { label: "Sustainability Points", href: "/sustainability" },
 ];
 
 export function SiteHeader() {
@@ -40,12 +41,12 @@ export function SiteHeader() {
           </Link>
 
           {/* Navigation */}
-          <nav className="hidden lg:flex items-center gap-1">
+          <nav className="hidden lg:flex items-center gap-3">
             {navigation.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="px-4 py-2 text-sm font-semibold text-slate-700 rounded-lg transition-all hover:bg-emerald-50 hover:text-emerald-700"
+                className="px-3 py-1.5 text-xs font-semibold text-slate-700 rounded-full transition-all hover:bg-emerald-50 hover:text-emerald-700 whitespace-nowrap leading-none"
               >
                 {item.label}
               </Link>

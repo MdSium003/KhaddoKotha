@@ -664,11 +664,14 @@ function calculateWeeklyTrends(logs: any[]) {
     const weekStart = new Date(weekEnd);
     weekStart.setDate(weekEnd.getDate() - 6);
 
-    const weekStartStr = weekStart.toISOString().split('T')[0];
-    const weekEndStr = weekEnd.toISOString().split('T')[0];
+    const weekStartStr = weekStart.toISOString().split('T')[0]!;
+    const weekEndStr = weekEnd.toISOString().split('T')[0]!;
+    const weekStartDate = new Date(weekStartStr as string);
+    const weekEndDate = new Date(weekEndStr as string);
 
     const weekLogs = logs.filter(log => {
-      return log.usageDate >= weekStartStr && log.usageDate <= weekEndStr;
+      const logDate = new Date(log.usageDate);
+      return logDate >= weekStartDate && logDate <= weekEndDate;
     });
 
     const categoryBreakdown: Record<string, { count: number; quantity: number }> = {};
@@ -2009,6 +2012,324 @@ app.post("/api/diet-planner/generate", async (req, res) => {
   } catch (error) {
     console.error("Diet planner generation failed", error);
     res.status(500).json({ message: "Failed to generate diet plan" });
+  }
+});
+
+// Sustainability Points System Endpoints
+
+// Calculate and update sustainability scores
+app.post("/api/sustainability/calculate", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = decoded.userId;
+    const today = new Date().toISOString().split("T")[0];
+
+    // Get user's inventory with expiration dates
+    const inventory = await sql`
+      SELECT id, item_name, expiration_date, quantity
+      FROM user_inventory
+      WHERE user_id = ${userId}
+      AND expiration_date IS NOT NULL
+    `;
+
+    // Get today's usage logs (for both sustainability and nutrition calculations)
+    const todayLogs = await sql`
+      SELECT item_name, category, quantity
+      FROM food_usage_logs
+      WHERE user_id = ${userId}
+      AND usage_date = ${today}
+    `;
+    const consumedItems = new Set(todayLogs.map((log: any) => log.item_name.toLowerCase()));
+
+    // Calculate Sustainability Points based on expiration dates
+    let sustainabilityPoints = 0;
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+
+    for (const item of inventory) {
+      if (!item.expiration_date) continue;
+      
+      const expDate = new Date(item.expiration_date);
+      expDate.setHours(0, 0, 0, 0);
+      const daysLeft = Math.ceil((expDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (daysLeft < 0) {
+        // Item expired - check if it was consumed
+        const wasConsumed = consumedItems.has(item.item_name.toLowerCase());
+        if (!wasConsumed) {
+          // Item expired without being eaten
+          sustainabilityPoints -= 10;
+        }
+      } else if (daysLeft <= 2) {
+        sustainabilityPoints += 8;
+      } else if (daysLeft <= 5) {
+        sustainabilityPoints += 5;
+      } else if (daysLeft <= 10) {
+        sustainabilityPoints += 3;
+      } else {
+        sustainabilityPoints += 1;
+      }
+    }
+
+    // Calculate Nutrition Points based on consumption patterns
+
+    let nutritionPoints = 0;
+    const categories = ["Fruit", "Vegetable", "Protein", "Dairy", "Grain"];
+    const categoryCounts: Record<string, number> = {};
+    
+    todayLogs.forEach((log: any) => {
+      categoryCounts[log.category] = (categoryCounts[log.category] || 0) + Number(log.quantity);
+    });
+
+    // Award points for balanced nutrition (at least 3 different categories)
+    const uniqueCategories = Object.keys(categoryCounts).length;
+    if (uniqueCategories >= 5) {
+      nutritionPoints += 10;
+    } else if (uniqueCategories >= 4) {
+      nutritionPoints += 7;
+    } else if (uniqueCategories >= 3) {
+      nutritionPoints += 5;
+    } else if (uniqueCategories >= 2) {
+      nutritionPoints += 3;
+    } else if (uniqueCategories >= 1) {
+      nutritionPoints += 1;
+    }
+
+    // Calculate Budget Points
+    // Get user's budget preference
+    const [user] = await sql`
+      SELECT budget_preferences
+      FROM users
+      WHERE id = ${userId}
+    `;
+
+    // Default daily budgets based on preference
+    const dailyBudgets: Record<string, number> = {
+      low: 10,
+      medium: 20,
+      high: 35,
+    };
+    const dailyBudget = dailyBudgets[user?.budget_preferences as string] || 20;
+
+    // Calculate today's spending from usage logs
+    // We'll use a simple calculation: assume average cost per category
+    const avgCosts: Record<string, number> = {
+      Fruit: 0.6,
+      Vegetable: 0.4,
+      Protein: 4.0,
+      Dairy: 1.5,
+      Grain: 1.0,
+      Nuts: 0.15,
+      Spread: 1.5,
+      Beverage: 2.0,
+    };
+
+    let totalSpent = 0;
+    todayLogs.forEach((log: any) => {
+      const cost = avgCosts[log.category as string] || 1.0;
+      totalSpent += cost * Number(log.quantity);
+    });
+
+    let budgetPoints = 0;
+    if (totalSpent < dailyBudget) {
+      const savingsPercent = ((dailyBudget - totalSpent) / dailyBudget) * 100;
+      if (savingsPercent >= 30) {
+        budgetPoints = 10;
+      } else {
+        budgetPoints = 5;
+      }
+    } else {
+      budgetPoints = -5;
+    }
+
+    // Calculate total points
+    const totalPoints = nutritionPoints + sustainabilityPoints + budgetPoints;
+
+    // Get previous total points for today (if any) so updates are idempotent
+    const [existingScore] = await sql`
+      SELECT total_points
+      FROM user_scores
+      WHERE user_id = ${userId}
+      AND score_date = ${today}
+    `;
+    const previousTotalPoints = existingScore?.total_points ?? 0;
+
+    // Update or insert today's score
+    await sql`
+      INSERT INTO user_scores (user_id, score_date, nutrition_points, sustainability_points, budget_points, total_points)
+      VALUES (${userId}, ${today}, ${nutritionPoints}, ${sustainabilityPoints}, ${budgetPoints}, ${totalPoints})
+      ON CONFLICT (user_id, score_date)
+      DO UPDATE SET
+        nutrition_points = ${nutritionPoints},
+        sustainability_points = ${sustainabilityPoints},
+        budget_points = ${budgetPoints},
+        total_points = ${totalPoints}
+    `;
+
+    // Update user's total score only by the difference for today
+    const scoreDelta = totalPoints - previousTotalPoints;
+    if (scoreDelta !== 0) {
+      await sql`
+        UPDATE users
+        SET total_score = total_score + ${scoreDelta}
+        WHERE id = ${userId}
+      `;
+    }
+
+    // Check and award badges
+    // NutriNinja: 3 consecutive days of healthy eating (nutrition_points >= 5)
+    const last3Days = await sql`
+      SELECT nutrition_points
+      FROM user_scores
+      WHERE user_id = ${userId}
+      AND score_date >= ${new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+      ORDER BY score_date DESC
+      LIMIT 3
+    `;
+    if (last3Days.length >= 3 && last3Days.every((d: any) => d.nutrition_points >= 5)) {
+      await sql`
+        INSERT INTO user_badges (user_id, badge_type)
+        VALUES (${userId}, 'nutri_ninja')
+        ON CONFLICT (user_id, badge_type) DO NOTHING
+      `;
+    }
+
+    // Waste Warrior: 3 consecutive days of sustainability_points >= 5
+    const last3DaysWaste = await sql`
+      SELECT sustainability_points
+      FROM user_scores
+      WHERE user_id = ${userId}
+      AND score_date >= ${new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+      ORDER BY score_date DESC
+      LIMIT 3
+    `;
+    if (last3DaysWaste.length >= 3 && last3DaysWaste.every((d: any) => d.sustainability_points >= 5)) {
+      await sql`
+        INSERT INTO user_badges (user_id, badge_type)
+        VALUES (${userId}, 'waste_warrior')
+        ON CONFLICT (user_id, badge_type) DO NOTHING
+      `;
+    }
+
+    // Budget Boss: 3 consecutive days of budget_points >= 5
+    const last3DaysBudget = await sql`
+      SELECT budget_points
+      FROM user_scores
+      WHERE user_id = ${userId}
+      AND score_date >= ${new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+      ORDER BY score_date DESC
+      LIMIT 3
+    `;
+    if (last3DaysBudget.length >= 3 && last3DaysBudget.every((d: any) => d.budget_points >= 5)) {
+      await sql`
+        INSERT INTO user_badges (user_id, badge_type)
+        VALUES (${userId}, 'budget_boss')
+        ON CONFLICT (user_id, badge_type) DO NOTHING
+      `;
+    }
+
+    res.json({
+      nutritionPoints,
+      sustainabilityPoints,
+      budgetPoints,
+      totalPoints,
+      message: "Scores calculated and updated successfully",
+    });
+  } catch (error) {
+    console.error("Calculate sustainability scores failed", error);
+    res.status(500).json({ message: "Failed to calculate scores" });
+  }
+});
+
+// Get user's sustainability scores and history
+app.get("/api/sustainability/scores", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+    const userId = decoded.userId;
+
+    // Get user's total score
+    const [user] = await sql`
+      SELECT total_score
+      FROM users
+      WHERE id = ${userId}
+    `;
+
+    // Get last 7 days of scores
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const scoreHistory = await sql`
+      SELECT score_date, nutrition_points, sustainability_points, budget_points, total_points
+      FROM user_scores
+      WHERE user_id = ${userId}
+      AND score_date >= ${sevenDaysAgo}
+      ORDER BY score_date ASC
+    `;
+
+    // Get today's score if exists
+    const today = new Date().toISOString().split("T")[0];
+    let [todayScore] = await sql`
+      SELECT nutrition_points, sustainability_points, budget_points, total_points
+      FROM user_scores
+      WHERE user_id = ${userId}
+      AND score_date = ${today}
+    `;
+
+    // If there's no entry for today but we have history, use the most recent day
+    if (!todayScore && scoreHistory.length > 0) {
+      const latest = scoreHistory[scoreHistory.length - 1] as any;
+      todayScore = {
+        nutrition_points: latest.nutrition_points,
+        sustainability_points: latest.sustainability_points,
+        budget_points: latest.budget_points,
+        total_points: latest.total_points,
+      };
+    }
+
+    // Get user badges
+    const badges = await sql`
+      SELECT badge_type, earned_at
+      FROM user_badges
+      WHERE user_id = ${userId}
+    `;
+
+    const formattedTodayScore = todayScore
+      ? {
+          nutritionPoints: todayScore.nutrition_points,
+          sustainabilityPoints: todayScore.sustainability_points,
+          budgetPoints: todayScore.budget_points,
+          totalPoints: todayScore.total_points,
+        }
+      : null;
+
+    res.json({
+      totalScore: user?.total_score || 0,
+      todayScore: formattedTodayScore,
+      scoreHistory: scoreHistory.map((s: any) => ({
+        date: s.score_date,
+        nutritionPoints: s.nutrition_points,
+        sustainabilityPoints: s.sustainability_points,
+        budgetPoints: s.budget_points,
+        totalPoints: s.total_points,
+      })),
+      badges: badges.map((b: any) => ({
+        type: b.badge_type,
+        earnedAt: b.earned_at,
+      })),
+    });
+  } catch (error) {
+    console.error("Get sustainability scores failed", error);
+    res.status(500).json({ message: "Failed to fetch scores" });
   }
 });
 

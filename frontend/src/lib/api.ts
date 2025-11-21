@@ -596,6 +596,52 @@ export type DietPlan = {
   };
 };
 
+// Sustainability Points types
+export type SustainabilityScoreResponse = {
+  nutritionPoints: number;
+  sustainabilityPoints: number;
+  budgetPoints: number;
+  totalPoints: number;
+  message: string;
+};
+
+export type ScoreHistoryItem = {
+  date: string;
+  nutritionPoints: number;
+  sustainabilityPoints: number;
+  budgetPoints: number;
+  totalPoints: number;
+};
+
+export type UserBadge = {
+  type: "nutri_ninja" | "waste_warrior" | "budget_boss";
+  earnedAt: string;
+};
+
+export type SustainabilityScoresResponse = {
+  totalScore: number;
+  todayScore: {
+    nutritionPoints: number;
+    sustainabilityPoints: number;
+    budgetPoints: number;
+    totalPoints: number;
+  } | null;
+  scoreHistory: ScoreHistoryItem[];
+  badges: UserBadge[];
+};
+
+// Calculate sustainability scores
+export async function calculateSustainabilityScores(): Promise<SustainabilityScoreResponse> {
+  return await request<SustainabilityScoreResponse>("/api/sustainability/calculate", {
+    method: "POST",
+  });
+}
+
+// Get sustainability scores and history
+export async function getSustainabilityScores(): Promise<SustainabilityScoresResponse> {
+  return await request<SustainabilityScoresResponse>("/api/sustainability/scores");
+}
+
 export async function generateDietPlan(
   budget: number,
   preference: "Veg" | "Non-Veg" | "Balanced"
