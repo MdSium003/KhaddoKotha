@@ -340,8 +340,8 @@ export default function DailyTrackerPage() {
                                     <button
                                         onClick={() => setFoodUsageMethod("manual")}
                                         className={`flex flex-col items-center gap-2 rounded-xl px-4 py-4 text-sm font-semibold transition-all ${foodUsageMethod === "manual"
-                                                ? "bg-emerald-600 text-white shadow-lg scale-105"
-                                                : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
+                                            ? "bg-emerald-600 text-white shadow-lg scale-105"
+                                            : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
                                             }`}
                                     >
                                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -352,8 +352,8 @@ export default function DailyTrackerPage() {
                                     <button
                                         onClick={() => setFoodUsageMethod("dropdown")}
                                         className={`flex flex-col items-center gap-2 rounded-xl px-4 py-4 text-sm font-semibold transition-all ${foodUsageMethod === "dropdown"
-                                                ? "bg-emerald-600 text-white shadow-lg scale-105"
-                                                : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
+                                            ? "bg-emerald-600 text-white shadow-lg scale-105"
+                                            : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
                                             }`}
                                     >
                                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -364,8 +364,8 @@ export default function DailyTrackerPage() {
                                     <button
                                         onClick={() => setFoodUsageMethod("csv")}
                                         className={`flex flex-col items-center gap-2 rounded-xl px-4 py-4 text-sm font-semibold transition-all ${foodUsageMethod === "csv"
-                                                ? "bg-emerald-600 text-white shadow-lg scale-105"
-                                                : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
+                                            ? "bg-emerald-600 text-white shadow-lg scale-105"
+                                            : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
                                             }`}
                                     >
                                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -140,6 +140,9 @@ export type CommunityPost = {
   unit?: string;
   target_date: string;
   details?: string;
+  latitude: number;
+  longitude: number;
+  address: string;
   comment_count: number;
   created_at: string;
   updated_at: string;
@@ -167,6 +170,9 @@ export async function createCommunityPost(data: {
   unit?: string;
   targetDate: string;
   details?: string;
+  latitude: number;
+  longitude: number;
+  address: string;
 }): Promise<CommunityPost> {
   const response = await request<{ post: any }>("/api/community/posts", {
     method: "POST",
@@ -416,6 +422,69 @@ export async function getFoodUsageLogs(date?: string): Promise<FoodUsageLog[]> {
     : "/api/food-usage";
   const response = await request<FoodUsageLogsResponse>(url);
   return response.logs;
+}
+
+// Analytics types
+export type WeeklyTrend = {
+  weekNumber: number;
+  weekStart: string;
+  weekEnd: string;
+  totalItems: number;
+  totalQuantity: number;
+  categoryBreakdown: Record<string, { count: number; quantity: number }>;
+};
+
+export type ConsumptionPattern = {
+  totalQuantity: number;
+  itemCount: number;
+  weeklyAverage: number;
+  trend: 'increasing' | 'decreasing' | 'stable';
+  status: 'normal' | 'over-consumption' | 'under-consumption';
+};
+
+export type Insight = {
+  type: 'success' | 'info' | 'warning' | 'error';
+  category: string;
+  message: string;
+  recommendation: string;
+};
+
+export type ImbalancedPattern = {
+  type: 'category_dominance' | 'high_variance' | 'distribution_imbalance' | 'extreme_week_change';
+  category?: string;
+  severity: 'high' | 'medium';
+  message: string;
+  recommendation: string;
+};
+
+export type HeatmapData = {
+  categories: string[];
+  weeks: Array<{
+    weekNumber: number;
+    label: string;
+    dateRange: string;
+  }>;
+  data: Array<{
+    category: string;
+    week: number;
+    value: number;
+  }>;
+  maxValue: number;
+};
+
+export type AnalyticsResponse = {
+  weeklyTrends: WeeklyTrend[];
+  consumptionPatterns: Record<string, ConsumptionPattern>;
+  insights: Insight[];
+  imbalancedPatterns: ImbalancedPattern[];
+  heatmapData: HeatmapData;
+  totalLogsAnalyzed: number;
+};
+
+// Get food usage analytics (weekly trends and consumption patterns)
+export async function getFoodUsageAnalytics(): Promise<AnalyticsResponse> {
+  const response = await request<AnalyticsResponse>("/api/food-usage/analytics");
+  return response;
 }
 
 // User inventory types

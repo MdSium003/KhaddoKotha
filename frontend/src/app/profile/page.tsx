@@ -10,9 +10,16 @@ import {
   getFoodUsageLogs,
   getUserInventory,
   fetchResources,
+  getFoodUsageAnalytics,
   type FoodUsageLog,
   type UserInventoryItem,
   type Resource,
+  type AnalyticsResponse,
+  type WeeklyTrend,
+  type ConsumptionPattern,
+  type Insight,
+  type ImbalancedPattern,
+  type HeatmapData,
 } from "@/lib/api";
 
 type BudgetPreferenceLevel = "low" | "medium" | "high" | "";
@@ -39,12 +46,16 @@ export default function ProfilePage() {
   // Last usage data
   const [recentUsage, setRecentUsage] = useState<FoodUsageLog[]>([]);
   const [usageLoading, setUsageLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "usage" | "settings">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "usage" | "analytics" | "settings">("overview");
   const [userInventoryItems, setUserInventoryItems] = useState<UserInventoryItem[]>([]);
   const [allResources, setAllResources] = useState<Resource[]>([]);
   const [recommendedResources, setRecommendedResources] = useState<Recommendation[]>([]);
   const [currentRecommendationIndex, setCurrentRecommendationIndex] = useState(0);
   const [showRecommendationsModal, setShowRecommendationsModal] = useState(false);
+
+  // Analytics state
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -126,6 +137,18 @@ export default function ProfilePage() {
       setAllResources(items);
     } catch (err) {
       console.error("Failed to load resources:", err);
+    }
+  };
+
+  const loadAnalytics = async () => {
+    setAnalyticsLoading(true);
+    try {
+      const data = await getFoodUsageAnalytics();
+      setAnalytics(data);
+    } catch (err) {
+      console.error("Failed to load analytics:", err);
+    } finally {
+      setAnalyticsLoading(false);
     }
   };
 
@@ -303,6 +326,18 @@ export default function ProfilePage() {
                 }`}
             >
               Recent Usage
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("analytics");
+                if (!analytics) loadAnalytics();
+              }}
+              className={`px-6 py-3 font-semibold transition-all ${activeTab === "analytics"
+                ? "border-b-2 border-emerald-600 text-emerald-600"
+                : "text-slate-600 hover:text-slate-900"
+                }`}
+            >
+              Analytics
             </button>
             <button
               onClick={() => setActiveTab("settings")}
@@ -491,6 +526,356 @@ export default function ProfilePage() {
                       </div>
                     </div>
                   </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Analytics Tab */}
+          {activeTab === "analytics" && (
+            <div className="space-y-6">
+              {analyticsLoading ? (
+                <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+                  <div className="text-center py-12">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mb-4"></div>
+                    <p className="text-slate-600">Analyzing your consumption patterns...</p>
+                  </div>
+                </div>
+              ) : !analytics || analytics.totalLogsAnalyzed === 0 ? (
+                <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+                  <div className="text-center py-12">
+                    <svg className="w-16 h-16 mx-auto text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <h3 className="text-xl font-semibold text-slate-900 mb-2">Not enough data</h3>
+                    <p className="text-slate-500">Track your food usage for at least a week to see analytics</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Imbalanced Patterns Section */}
+                  {analytics.imbalancedPatterns && analytics.imbalancedPatterns.length > 0 && (
+                    <div className="rounded-3xl border-2 border-red-200 bg-red-50 p-8 shadow-lg">
+                      <div className="flex items-center gap-3 mb-6">
+                        <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <h3 className="text-xl font-bold text-red-900">Imbalanced Patterns Detected</h3>
+                      </div>
+                      <p className="text-sm text-red-700 mb-6">
+                        We've identified some imbalanced consumption patterns that may affect your nutrition and food waste management.
+                      </p>
+                      <div className="space-y-4">
+                        {analytics.imbalancedPatterns.map((pattern, index) => (
+                          <div
+                            key={index}
+                            className={`rounded-2xl p-5 border-l-4 ${
+                              pattern.severity === 'high'
+                                ? 'bg-red-100 border-red-500'
+                                : 'bg-orange-100 border-orange-500'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="flex-shrink-0">
+                                {pattern.severity === 'high' ? (
+                                  <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                  </svg>
+                                ) : (
+                                  <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                )}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <p className="font-semibold text-slate-900">{pattern.message}</p>
+                                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                                    pattern.severity === 'high'
+                                      ? 'bg-red-200 text-red-800'
+                                      : 'bg-orange-200 text-orange-800'
+                                  }`}>
+                                    {pattern.severity === 'high' ? 'High' : 'Medium'} Priority
+                                  </span>
+                                  {pattern.category && (
+                                    <span className="text-xs font-medium px-2 py-1 rounded-full bg-white/60 text-slate-600 capitalize">
+                                      {pattern.category}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-slate-700">{pattern.recommendation}</p>
+                                <div className="mt-2 text-xs text-slate-600">
+                                  <span className="font-medium">Pattern Type: </span>
+                                  <span className="capitalize">{pattern.type.replace(/_/g, ' ')}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Insights Section */}
+                  {analytics.insights.length > 0 && (
+                    <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+                      <h3 className="text-xl font-bold text-slate-900 mb-6">Insights & Recommendations</h3>
+                      <div className="space-y-4">
+                        {analytics.insights.map((insight, index) => (
+                          <div
+                            key={index}
+                            className={`rounded-2xl p-5 border-l-4 ${insight.type === 'success'
+                              ? 'bg-green-50 border-green-500'
+                              : insight.type === 'warning'
+                                ? 'bg-orange-50 border-orange-500'
+                                : insight.type === 'error'
+                                  ? 'bg-red-50 border-red-500'
+                                  : 'bg-blue-50 border-blue-500'
+                              }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="flex-shrink-0">
+                                {insight.type === 'success' && (
+                                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                )}
+                                {insight.type === 'warning' && (
+                                  <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                  </svg>
+                                )}
+                                {insight.type === 'info' && (
+                                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                )}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <p className="font-semibold text-slate-900">{insight.message}</p>
+                                  <span className="text-xs font-medium px-2 py-1 rounded-full bg-white/60 text-slate-600 capitalize">
+                                    {insight.category}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-slate-600">{insight.recommendation}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Weekly Trends */}
+                  <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+                    <h3 className="text-xl font-bold text-slate-900 mb-6">Weekly Consumption Trends</h3>
+                    <div className="space-y-4">
+                      {analytics.weeklyTrends.map((week) => (
+                        <div key={week.weekNumber} className="border border-slate-200 rounded-2xl p-5">
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <h4 className="font-semibold text-slate-900">Week {week.weekNumber}</h4>
+                              <p className="text-sm text-slate-500">
+                                {new Date(week.weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(week.weekEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-2xl font-bold text-emerald-600">{week.totalQuantity}</p>
+                              <p className="text-xs text-slate-500">{week.totalItems} items</p>
+                            </div>
+                          </div>
+                          {Object.keys(week.categoryBreakdown).length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-slate-100">
+                              <p className="text-xs font-semibold text-slate-600 mb-2">Category Breakdown:</p>
+                              <div className="flex flex-wrap gap-2">
+                                {Object.entries(week.categoryBreakdown).map(([category, data]) => (
+                                  <span key={category} className="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-700 capitalize">
+                                    {category}: {data.quantity.toFixed(1)}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Consumption Patterns */}
+                  <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+                    <h3 className="text-xl font-bold text-slate-900 mb-6">Consumption Patterns by Category</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {Object.entries(analytics.consumptionPatterns).map(([category, pattern]) => (
+                        <div key={category} className="border border-slate-200 rounded-2xl p-5">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-semibold text-slate-900 capitalize">{category}</h4>
+                            <span
+                              className={`text-xs font-semibold px-3 py-1 rounded-full ${pattern.status === 'over-consumption'
+                                ? 'bg-orange-100 text-orange-700'
+                                : pattern.status === 'under-consumption'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-green-100 text-green-700'
+                                }`}
+                            >
+                              {pattern.status === 'over-consumption' ? 'High' : pattern.status === 'under-consumption' ? 'Low' : 'Normal'}
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-slate-600">Weekly Average:</span>
+                              <span className="font-semibold text-slate-900">{pattern.weeklyAverage} units</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-slate-600">Total (4 weeks):</span>
+                              <span className="font-semibold text-slate-900">{pattern.totalQuantity}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-slate-600">Trend:</span>
+                              <span
+                                className={`font-semibold capitalize ${pattern.trend === 'increasing'
+                                  ? 'text-orange-600'
+                                  : pattern.trend === 'decreasing'
+                                    ? 'text-blue-600'
+                                    : 'text-slate-600'
+                                  }`}
+                              >
+                                {pattern.trend === 'increasing' ? '↗ Increasing' : pattern.trend === 'decreasing' ? '↘ Decreasing' : '→ Stable'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Heatmap Visualization */}
+                  {analytics.heatmapData && analytics.heatmapData.categories.length > 0 && (
+                    <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+                      <div className="flex items-center justify-between mb-6">
+                        <div>
+                          <h3 className="text-xl font-bold text-slate-900">Consumption Heatmap</h3>
+                          <p className="text-sm text-slate-500 mt-1">Visual representation of consumption by category and week</p>
+                        </div>
+                      </div>
+                      
+                      {/* Legend */}
+                      <div className="mb-6 flex items-center gap-4">
+                        <span className="text-xs font-semibold text-slate-600">Intensity:</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500">Low</span>
+                          <div className="flex gap-1">
+                            {[0, 0.25, 0.5, 0.75, 1.0].map((intensity) => (
+                              <div
+                                key={intensity}
+                                className="w-8 h-8 rounded border border-slate-200"
+                                style={{
+                                  backgroundColor: `rgba(16, 185, 129, ${intensity})`,
+                                }}
+                              />
+                            ))}
+                          </div>
+                          <span className="text-xs text-slate-500">High</span>
+                        </div>
+                        {analytics.heatmapData.maxValue > 0 && (
+                          <span className="text-xs text-slate-500 ml-auto">
+                            Max: {analytics.heatmapData.maxValue} units
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Heatmap Grid */}
+                      <div className="overflow-x-auto">
+                        <div className="inline-block min-w-full">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr>
+                                <th className="sticky left-0 z-10 bg-white border-b-2 border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-700">
+                                  Category
+                                </th>
+                                {analytics.heatmapData.weeks.map((week) => (
+                                  <th
+                                    key={week.weekNumber}
+                                    className="border-b-2 border-slate-300 px-3 py-3 text-center text-xs font-semibold text-slate-700 min-w-[100px]"
+                                  >
+                                    <div className="flex flex-col">
+                                      <span>{week.label}</span>
+                                      <span className="text-xs font-normal text-slate-500 mt-1">{week.dateRange}</span>
+                                    </div>
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {analytics.heatmapData.categories.map((category) => (
+                                <tr key={category} className="hover:bg-slate-50 transition-colors">
+                                  <td className="sticky left-0 z-10 bg-white border-b border-slate-200 px-4 py-3 text-sm font-medium text-slate-900 capitalize">
+                                    {category}
+                                  </td>
+                                  {analytics.heatmapData.weeks.map((week) => {
+                                    const cellData = analytics.heatmapData.data.find(
+                                      (d) => d.category === category && d.week === week.weekNumber
+                                    );
+                                    const value = cellData?.value || 0;
+                                    const intensity = analytics.heatmapData.maxValue > 0 
+                                      ? Math.min(value / analytics.heatmapData.maxValue, 1) 
+                                      : 0;
+                                    
+                                    return (
+                                      <td
+                                        key={`${category}-${week.weekNumber}`}
+                                        className="border-b border-slate-200 px-3 py-3 text-center relative group"
+                                      >
+                                        <div
+                                          className="mx-auto w-full h-12 rounded-lg border border-slate-200 flex items-center justify-center transition-all hover:scale-105 cursor-pointer"
+                                          style={{
+                                            backgroundColor: `rgba(16, 185, 129, ${intensity * 0.8 + 0.2})`,
+                                            color: intensity > 0.5 ? 'white' : 'rgb(51, 65, 85)',
+                                          }}
+                                          title={`${category}: ${value} units in ${week.label}`}
+                                        >
+                                          <span className="text-xs font-semibold">
+                                            {value > 0 ? value.toFixed(1) : '-'}
+                                          </span>
+                                        </div>
+                                        {/* Tooltip on hover */}
+                                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20">
+                                          {category}: {value} units
+                                          <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-slate-900"></div>
+                                        </div>
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Summary Stats */}
+                      <div className="mt-6 pt-6 border-t border-slate-200">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="text-center">
+                            <p className="text-xs text-slate-500 mb-1">Total Categories</p>
+                            <p className="text-lg font-bold text-slate-900">{analytics.heatmapData.categories.length}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-xs text-slate-500 mb-1">Weeks Analyzed</p>
+                            <p className="text-lg font-bold text-slate-900">{analytics.heatmapData.weeks.length}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-xs text-slate-500 mb-1">Peak Consumption</p>
+                            <p className="text-lg font-bold text-emerald-600">{analytics.heatmapData.maxValue} units</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-xs text-slate-500 mb-1">Data Points</p>
+                            <p className="text-lg font-bold text-slate-900">{analytics.heatmapData.data.length}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>

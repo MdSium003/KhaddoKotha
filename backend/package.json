@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "lint": "tsc --noEmit",
     "migrate": "tsx src/db/migrate.ts",
+    "migrate:location": "tsx src/db/add-location-to-posts.ts",
     "reseed-resources": "tsx src/db/reseed-resources.ts"
   },
   "keywords": [],

@@ -588,6 +588,411 @@ app.get("/api/food-usage", async (req, res) => {
   }
 });
 
+// Food usage analytics endpoint
+app.get("/api/food-usage/analytics", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    // Get data for the last 4 weeks to identify trends
+    const fourWeeksAgo = new Date();
+    fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+    const fourWeeksAgoStr = fourWeeksAgo.toISOString().split('T')[0];
+
+    // Fetch all logs from the last 4 weeks
+    const allLogs = await sql`
+      SELECT id, item_name, quantity, category, usage_date, created_at
+      FROM food_usage_logs
+      WHERE user_id = ${decoded.userId}
+        AND usage_date >= ${fourWeeksAgoStr}
+      ORDER BY usage_date DESC
+    `;
+
+    // Convert to proper format
+    const logs = allLogs.map((log) => ({
+      id: log.id,
+      itemName: log.item_name,
+      quantity: Number(log.quantity),
+      category: log.category,
+      usageDate: log.usage_date,
+      createdAt: log.created_at,
+    }));
+
+    // Calculate weekly trends
+    const weeklyTrends = calculateWeeklyTrends(logs);
+
+    // Detect consumption patterns
+    const consumptionPatterns = detectConsumptionPatterns(logs);
+
+    // Detect imbalanced patterns
+    const imbalancedPatterns = detectImbalancedPatterns(weeklyTrends, consumptionPatterns);
+
+    // Generate heatmap data
+    const heatmapData = generateHeatmapData(weeklyTrends, consumptionPatterns);
+
+    // Generate insights
+    const insights = generateInsights(weeklyTrends, consumptionPatterns);
+
+    res.json({
+      weeklyTrends,
+      consumptionPatterns,
+      insights,
+      imbalancedPatterns,
+      heatmapData,
+      totalLogsAnalyzed: logs.length,
+    });
+  } catch (error) {
+    console.error("Get food usage analytics failed", error);
+    res.status(500).json({ message: "Failed to fetch analytics" });
+  }
+});
+
+// Helper function to calculate weekly trends
+function calculateWeeklyTrends(logs: any[]) {
+  const weeks = [];
+  const now = new Date();
+
+  // Create 4 weeks of data
+  for (let i = 0; i < 4; i++) {
+    const weekEnd = new Date(now);
+    weekEnd.setDate(now.getDate() - (i * 7));
+    const weekStart = new Date(weekEnd);
+    weekStart.setDate(weekEnd.getDate() - 6);
+
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+    const weekEndStr = weekEnd.toISOString().split('T')[0];
+
+    const weekLogs = logs.filter(log => {
+      return log.usageDate >= weekStartStr && log.usageDate <= weekEndStr;
+    });
+
+    const categoryBreakdown: Record<string, { count: number; quantity: number }> = {};
+    let totalItems = 0;
+    let totalQuantity = 0;
+
+    weekLogs.forEach(log => {
+      if (!categoryBreakdown[log.category]) {
+        categoryBreakdown[log.category] = { count: 0, quantity: 0 };
+      }
+      categoryBreakdown[log.category].count++;
+      categoryBreakdown[log.category].quantity += log.quantity;
+      totalItems++;
+      totalQuantity += log.quantity;
+    });
+
+    weeks.push({
+      weekNumber: 4 - i,
+      weekStart: weekStartStr,
+      weekEnd: weekEndStr,
+      totalItems,
+      totalQuantity: Math.round(totalQuantity * 100) / 100,
+      categoryBreakdown,
+    });
+  }
+
+  return weeks.reverse(); // Return in chronological order
+}
+
+// Helper function to detect consumption patterns
+function detectConsumptionPatterns(logs: any[]) {
+  const categoryStats: Record<string, {
+    totalQuantity: number;
+    itemCount: number;
+    weeklyAverage: number;
+    trend: 'increasing' | 'decreasing' | 'stable';
+    status: 'normal' | 'over-consumption' | 'under-consumption';
+  }> = {};
+
+  // Group by category
+  const categorizedLogs: Record<string, any[]> = {};
+  logs.forEach(log => {
+    if (!categorizedLogs[log.category]) {
+      categorizedLogs[log.category] = [];
+    }
+    categorizedLogs[log.category].push(log);
+  });
+
+  // Analyze each category
+  Object.keys(categorizedLogs).forEach(category => {
+    const categoryLogs = categorizedLogs[category];
+    const totalQuantity = categoryLogs.reduce((sum, log) => sum + log.quantity, 0);
+    const itemCount = categoryLogs.length;
+    const weeklyAverage = totalQuantity / 4; // 4 weeks of data
+
+    // Calculate trend by comparing first 2 weeks vs last 2 weeks
+    const twoWeeksAgo = new Date();
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    const twoWeeksAgoStr = twoWeeksAgo.toISOString().split('T')[0];
+
+    const recentLogs = categoryLogs.filter(log => log.usageDate >= twoWeeksAgoStr);
+    const olderLogs = categoryLogs.filter(log => log.usageDate < twoWeeksAgoStr);
+
+    const recentQuantity = recentLogs.reduce((sum, log) => sum + log.quantity, 0);
+    const olderQuantity = olderLogs.reduce((sum, log) => sum + log.quantity, 0);
+
+    let trend: 'increasing' | 'decreasing' | 'stable' = 'stable';
+    if (recentQuantity > olderQuantity * 1.2) {
+      trend = 'increasing';
+    } else if (recentQuantity < olderQuantity * 0.8) {
+      trend = 'decreasing';
+    }
+
+    // Determine consumption status based on weekly average
+    // These thresholds can be adjusted based on category
+    let status: 'normal' | 'over-consumption' | 'under-consumption' = 'normal';
+
+    // Category-specific thresholds (simplified - can be made more sophisticated)
+    const thresholds: Record<string, { high: number; low: number }> = {
+      'fruit': { high: 15, low: 3 },
+      'vegetable': { high: 20, low: 5 },
+      'dairy': { high: 10, low: 2 },
+      'protein': { high: 12, low: 3 },
+      'grain': { high: 15, low: 4 },
+      'default': { high: 10, low: 2 },
+    };
+
+    const threshold = thresholds[category.toLowerCase()] || thresholds['default'];
+
+    if (weeklyAverage > threshold.high) {
+      status = 'over-consumption';
+    } else if (weeklyAverage < threshold.low && itemCount > 0) {
+      status = 'under-consumption';
+    }
+
+    categoryStats[category] = {
+      totalQuantity: Math.round(totalQuantity * 100) / 100,
+      itemCount,
+      weeklyAverage: Math.round(weeklyAverage * 100) / 100,
+      trend,
+      status,
+    };
+  });
+
+  return categoryStats;
+}
+
+// Helper function to generate insights
+function generateInsights(weeklyTrends: any[], consumptionPatterns: any) {
+  const insights = [];
+
+  // Analyze overall trend
+  if (weeklyTrends.length >= 2) {
+    const latestWeek = weeklyTrends[weeklyTrends.length - 1];
+    const previousWeek = weeklyTrends[weeklyTrends.length - 2];
+
+    if (latestWeek.totalQuantity > previousWeek.totalQuantity * 1.3) {
+      insights.push({
+        type: 'warning',
+        category: 'overall',
+        message: `Your food consumption increased by ${Math.round(((latestWeek.totalQuantity - previousWeek.totalQuantity) / previousWeek.totalQuantity) * 100)}% this week`,
+        recommendation: 'Consider meal planning to optimize your food usage and reduce potential waste.',
+      });
+    } else if (latestWeek.totalQuantity < previousWeek.totalQuantity * 0.7) {
+      insights.push({
+        type: 'info',
+        category: 'overall',
+        message: `Your food consumption decreased by ${Math.round(((previousWeek.totalQuantity - latestWeek.totalQuantity) / previousWeek.totalQuantity) * 100)}% this week`,
+        recommendation: 'Great job on mindful consumption! Make sure you\'re meeting your nutritional needs.',
+      });
+    }
+  }
+
+  // Analyze category-specific patterns
+  Object.entries(consumptionPatterns).forEach(([category, stats]: [string, any]) => {
+    if (stats.status === 'over-consumption') {
+      insights.push({
+        type: 'warning',
+        category,
+        message: `High ${category} consumption detected (${stats.weeklyAverage} units/week)`,
+        recommendation: `Consider reducing ${category} intake or ensure proper storage to prevent waste.`,
+      });
+    } else if (stats.status === 'under-consumption') {
+      insights.push({
+        type: 'info',
+        category,
+        message: `Low ${category} consumption detected (${stats.weeklyAverage} units/week)`,
+        recommendation: `Ensure you're getting enough ${category} in your diet for balanced nutrition.`,
+      });
+    }
+
+    if (stats.trend === 'increasing') {
+      insights.push({
+        type: 'info',
+        category,
+        message: `${category} consumption is trending upward`,
+        recommendation: `Monitor your ${category} inventory to avoid over-purchasing and potential waste.`,
+      });
+    } else if (stats.trend === 'decreasing') {
+      insights.push({
+        type: 'info',
+        category,
+        message: `${category} consumption is trending downward`,
+        recommendation: `Adjust your shopping list to match your current ${category} consumption patterns.`,
+      });
+    }
+  });
+
+  // If no insights, add a positive message
+  if (insights.length === 0) {
+    insights.push({
+      type: 'success',
+      category: 'overall',
+      message: 'Your consumption patterns look healthy and balanced!',
+      recommendation: 'Keep up the good work with mindful food management.',
+    });
+  }
+
+  return insights;
+}
+
+// Helper function to detect imbalanced patterns
+function detectImbalancedPatterns(weeklyTrends: any[], consumptionPatterns: any) {
+  const imbalances = [];
+
+  // 1. Check for category dominance (one category > 50% of total consumption)
+  const totalConsumption = Object.values(consumptionPatterns).reduce(
+    (sum: number, pattern: any) => sum + pattern.totalQuantity,
+    0
+  );
+
+  if (totalConsumption > 0) {
+    Object.entries(consumptionPatterns).forEach(([category, pattern]: [string, any]) => {
+      const percentage = (pattern.totalQuantity / totalConsumption) * 100;
+      if (percentage > 50) {
+        imbalances.push({
+          type: 'category_dominance',
+          category,
+          severity: percentage > 70 ? 'high' : 'medium',
+          message: `${category} accounts for ${Math.round(percentage)}% of your total consumption`,
+          recommendation: `Consider diversifying your diet to include more variety across food categories for balanced nutrition.`,
+        });
+      }
+    });
+  }
+
+  // 2. Check for high week-to-week variance (coefficient of variation > 0.5)
+  if (weeklyTrends.length >= 2) {
+    const weeklyQuantities = weeklyTrends.map(week => week.totalQuantity);
+    const mean = weeklyQuantities.reduce((a, b) => a + b, 0) / weeklyQuantities.length;
+    const variance = weeklyQuantities.reduce((sum, qty) => sum + Math.pow(qty - mean, 2), 0) / weeklyQuantities.length;
+    const stdDev = Math.sqrt(variance);
+    const coefficientOfVariation = mean > 0 ? stdDev / mean : 0;
+
+    if (coefficientOfVariation > 0.5) {
+      imbalances.push({
+        type: 'high_variance',
+        severity: coefficientOfVariation > 0.8 ? 'high' : 'medium',
+        message: `Your consumption varies significantly week-to-week (${Math.round(coefficientOfVariation * 100)}% variation)`,
+        recommendation: `Try to maintain more consistent consumption patterns to better plan your shopping and reduce waste.`,
+      });
+    }
+  }
+
+  // 3. Check for distribution imbalance (few categories dominate)
+  if (Object.keys(consumptionPatterns).length >= 3) {
+    const sortedCategories = Object.entries(consumptionPatterns)
+      .sort(([, a]: [string, any], [, b]: [string, any]) => b.totalQuantity - a.totalQuantity)
+      .slice(0, 2);
+
+    const topTwoTotal = sortedCategories.reduce(
+      (sum, [, pattern]: [string, any]) => sum + pattern.totalQuantity,
+      0
+    );
+    const topTwoPercentage = totalConsumption > 0 ? (topTwoTotal / totalConsumption) * 100 : 0;
+
+    if (topTwoPercentage > 75) {
+      const topCategories = sortedCategories.map(([cat]) => cat).join(' and ');
+      imbalances.push({
+        type: 'distribution_imbalance',
+        severity: topTwoPercentage > 85 ? 'high' : 'medium',
+        message: `${topCategories} account for ${Math.round(topTwoPercentage)}% of your consumption`,
+        recommendation: `Your diet is heavily concentrated in a few categories. Consider adding more variety for nutritional balance.`,
+      });
+    }
+  }
+
+  // 4. Check for extreme week differences (>100% change)
+  if (weeklyTrends.length >= 2) {
+    for (let i = 1; i < weeklyTrends.length; i++) {
+      const currentWeek = weeklyTrends[i].totalQuantity;
+      const previousWeek = weeklyTrends[i - 1].totalQuantity;
+      
+      if (previousWeek > 0) {
+        const change = Math.abs((currentWeek - previousWeek) / previousWeek);
+        if (change > 1.0) {
+          const direction = currentWeek > previousWeek ? 'increase' : 'decrease';
+          const percentage = Math.round(change * 100);
+          imbalances.push({
+            type: 'extreme_week_change',
+            severity: 'high',
+            message: `Week ${weeklyTrends[i].weekNumber} showed a ${percentage}% ${direction} compared to the previous week`,
+            recommendation: `Such dramatic changes can lead to waste or nutritional gaps. Try to maintain more consistent consumption.`,
+          });
+          break; // Only flag the most recent extreme change
+        }
+      }
+    }
+  }
+
+  return imbalances;
+}
+
+// Helper function to generate heatmap data
+function generateHeatmapData(weeklyTrends: any[], consumptionPatterns: any) {
+  // Get all unique categories
+  const allCategories = Object.keys(consumptionPatterns);
+  
+  // If no categories, return empty data
+  if (allCategories.length === 0) {
+    return {
+      categories: [],
+      weeks: [],
+      data: [],
+      maxValue: 0,
+    };
+  }
+
+  // Create heatmap data structure: category x week
+  const heatmapData: Array<{ category: string; week: number; value: number }> = [];
+  
+  // Calculate max value for normalization
+  let maxValue = 0;
+
+  allCategories.forEach(category => {
+    weeklyTrends.forEach(week => {
+      const categoryData = week.categoryBreakdown[category];
+      const value = categoryData ? categoryData.quantity : 0;
+      heatmapData.push({
+        category,
+        week: week.weekNumber,
+        value: Math.round(value * 100) / 100,
+      });
+      if (value > maxValue) {
+        maxValue = value;
+      }
+    });
+  });
+
+  // Generate week labels
+  const weekLabels = weeklyTrends.map(week => ({
+    weekNumber: week.weekNumber,
+    label: `Week ${week.weekNumber}`,
+    dateRange: `${new Date(week.weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(week.weekEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+  }));
+
+  return {
+    categories: allCategories.sort(),
+    weeks: weekLabels,
+    data: heatmapData,
+    maxValue: Math.round(maxValue * 100) / 100,
+  };
+}
+
 // User inventory endpoints
 app.get("/api/user-inventory", async (req, res) => {
   try {
@@ -1122,11 +1527,14 @@ app.post("/api/community/posts", async (req, res) => {
       unit: z.string().optional(),
       targetDate: z.string(),
       details: z.string().optional(),
+      latitude: z.number().min(-90).max(90),
+      longitude: z.number().min(-180).max(180),
+      address: z.string().min(1),
     }).parse(req.body);
 
     const result = await sql`
-      INSERT INTO community_posts (user_id, post_type, food_name, quantity, unit, target_date, details)
-      VALUES (${decoded.userId}, ${body.postType}, ${body.foodName}, ${body.quantity}, ${body.unit || null}, ${body.targetDate}, ${body.details || null})
+      INSERT INTO community_posts (user_id, post_type, food_name, quantity, unit, target_date, details, latitude, longitude, address)
+      VALUES (${decoded.userId}, ${body.postType}, ${body.foodName}, ${body.quantity}, ${body.unit || null}, ${body.targetDate}, ${body.details || null}, ${body.latitude}, ${body.longitude}, ${body.address})
       RETURNING *
     `;
 
@@ -1296,33 +1704,199 @@ app.post("/api/chatbot", async (req, res) => {
         role: z.enum(["user", "assistant"]),
         content: z.string(),
       })).optional(),
+      sessionContext: z.object({
+        sessionStart: z.number().optional(),
+        messageCount: z.number().optional(),
+        sessionDuration: z.number().optional(),
+      }).optional(),
     }).parse(req.body);
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    // Try to get user context if authenticated (optional)
+    let userContext = '';
+    try {
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith("Bearer ")) {
+        const token = authHeader.substring(7);
+        const decoded = verifyToken(token);
+        
+        // Fetch user inventory
+        const inventoryItems = await sql`
+          SELECT item_name, quantity, category, expiration_date, purchase_date
+          FROM user_inventory
+          WHERE user_id = ${decoded.userId}
+          ORDER BY expiration_date ASC NULLS LAST
+          LIMIT 20
+        `;
+
+        // Fetch recent usage logs for analytics
+        const fourWeeksAgo = new Date();
+        fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+        const usageLogs = await sql`
+          SELECT item_name, quantity, category, usage_date
+          FROM food_usage_logs
+          WHERE user_id = ${decoded.userId}
+            AND usage_date >= ${fourWeeksAgo.toISOString().split('T')[0]}
+          ORDER BY usage_date DESC
+          LIMIT 30
+        `;
+
+        // Get user profile
+        const userData = await sql`
+          SELECT name, budget_preferences, location, dietary_needs
+          FROM users
+          WHERE id = ${decoded.userId}
+        `;
+
+        if (inventoryItems.length > 0 || usageLogs.length > 0 || userData.length > 0) {
+          userContext = '\n\nUSER CONTEXT (use this to provide personalized advice):\n';
+          
+          if (userData.length > 0) {
+            const user = userData[0];
+            userContext += `User Profile:\n`;
+            userContext += `- Name: ${user.name}\n`;
+            if (user.budget_preferences) userContext += `- Budget Preference: ${user.budget_preferences}\n`;
+            if (user.location) userContext += `- Location: ${user.location}\n`;
+            if (user.dietary_needs) userContext += `- Dietary Needs: ${user.dietary_needs}\n`;
+          }
+
+          if (inventoryItems.length > 0) {
+            userContext += `\nCurrent Inventory (${inventoryItems.length} items):\n`;
+            const expiringSoon = inventoryItems.filter(item => {
+              if (!item.expiration_date) return false;
+              const expDate = new Date(item.expiration_date);
+              const daysUntilExp = Math.ceil((expDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+              return daysUntilExp <= 7 && daysUntilExp >= 0;
+            });
+            
+            if (expiringSoon.length > 0) {
+              userContext += `⚠️ Items expiring soon (within 7 days):\n`;
+              expiringSoon.forEach(item => {
+                const expDate = new Date(item.expiration_date);
+                const daysLeft = Math.ceil((expDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                userContext += `  - ${item.item_name} (${item.quantity} ${item.category}) - ${daysLeft} days left\n`;
+              });
+            }
+            
+            userContext += `All items: ${inventoryItems.map(item => `${item.item_name} (${item.quantity} ${item.category})`).join(', ')}\n`;
+          }
+
+          if (usageLogs.length > 0) {
+            const categoryTotals: Record<string, number> = {};
+            usageLogs.forEach(log => {
+              categoryTotals[log.category] = (categoryTotals[log.category] || 0) + Number(log.quantity);
+            });
+            userContext += `\nRecent Consumption (last 4 weeks):\n`;
+            Object.entries(categoryTotals).forEach(([cat, qty]) => {
+              userContext += `  - ${cat}: ${qty.toFixed(1)} units\n`;
+            });
+          }
+        }
+      }
+    } catch (authError) {
+      // User not authenticated or error - continue without context
+      // This is fine, chatbot works for both authenticated and non-authenticated users
+    }
 
     // Build conversation history for context
     const historyContext = body.conversationHistory?.map(msg =>
       `${msg.role === 'user' ? 'User' : 'KhaddoKotha'}: ${msg.content}`
     ).join('\n') || '';
 
-    const systemPrompt = `You are KhaddoKotha AI Assistant, a helpful and friendly chatbot for a food management and sustainability platform. 
+    // Build session context information
+    let sessionInfo = '';
+    if (body.sessionContext) {
+      const { sessionStart, messageCount, sessionDuration } = body.sessionContext;
+      sessionInfo = '\n\nSESSION CONTEXT:\n';
+      if (sessionStart) {
+        const sessionDate = new Date(sessionStart).toLocaleString();
+        sessionInfo += `- Session started: ${sessionDate}\n`;
+      }
+      if (messageCount) {
+        sessionInfo += `- Total messages in this session: ${messageCount}\n`;
+      }
+      if (sessionDuration) {
+        const minutes = Math.floor(sessionDuration / (1000 * 60));
+        sessionInfo += `- Session duration: ${minutes} minutes\n`;
+      }
+      sessionInfo += '- This is an ongoing conversation. Reference previous messages for context.\n';
+    }
 
-Your role is to:
-- Help users reduce food waste and save money
-- Provide tips on food preservation and storage
-- Suggest recipes for ingredients they have
-- Answer questions about food expiration and safety
-- Promote sustainable food consumption practices
-- Guide users on how to use the platform features
+    const systemPrompt = `You are KhaddoKotha AI Assistant, an expert food management and sustainability advisor for a food waste reduction platform.
 
-Be concise, friendly, and helpful. Keep responses under 150 words unless detailed instructions are needed.
+CORE CAPABILITIES - You excel at:
 
-Platform Features:
+1. FOOD WASTE REDUCTION ADVICE:
+   - Analyze user's inventory and consumption patterns to identify waste risks
+   - Suggest meal planning strategies to use items before expiration
+   - Provide storage tips to extend food shelf life
+   - Recommend portion control and shopping strategies
+   - Identify items expiring soon and suggest immediate use recipes
+   - Calculate potential savings from waste reduction
+
+2. NUTRITION BALANCING:
+   - Analyze consumption patterns across food categories (Fruit, Vegetable, Dairy, Protein, Grain)
+   - Identify nutritional gaps or imbalances in diet
+   - Suggest specific foods to add for balanced nutrition
+   - Recommend meal combinations for complete nutrition
+   - Provide category-specific advice (e.g., "You're low on vegetables, try adding...")
+   - Consider dietary restrictions and preferences
+
+3. BUDGET MEAL PLANNING:
+   - Create cost-effective meal plans based on user's inventory
+   - Suggest budget-friendly recipes using available ingredients
+   - Recommend shopping strategies to maximize value
+   - Identify ways to reduce food costs through better planning
+   - Suggest bulk cooking and meal prep ideas
+   - Consider user's budget preference (low/medium/high)
+
+4. CREATIVE IDEAS FOR TRANSFORMING LEFTOVERS:
+   - Suggest creative recipes to repurpose specific leftover items
+   - Provide ideas for transforming expired-soon items into new dishes
+   - Recommend preservation methods (freezing, pickling, etc.)
+   - Suggest combinations of leftover items for new meals
+   - Provide step-by-step transformation ideas
+   - Include tips for maintaining food safety
+
+5. GUIDANCE ON LOCAL FOOD SHARING:
+   - Explain how to use the platform's community features
+   - Suggest what items are good for sharing/donating
+   - Provide tips on food safety for sharing
+   - Recommend local food banks or community organizations
+   - Suggest ways to organize neighborhood food swaps
+   - Explain benefits of food sharing for community
+
+6. EXPLANATIONS OF ENVIRONMENTAL IMPACTS:
+   - Explain carbon footprint of food waste
+   - Calculate environmental impact of user's waste patterns
+   - Discuss water usage in food production
+   - Explain landfill methane emissions from food waste
+   - Provide statistics on global food waste
+   - Suggest ways to reduce environmental footprint
+   - Connect individual actions to global impact
+
+RESPONSE GUIDELINES:
+- Be friendly, encouraging, and non-judgmental
+- Use emojis sparingly for emphasis (🌱 ♻️ 💰 🥗)
+- Keep responses concise (100-200 words) unless detailed instructions are needed
+- Provide actionable, specific advice
+- Reference user's actual inventory/consumption when available
+- Use metric units (kg, grams) and local currency context when relevant
+- Always prioritize food safety
+
+PLATFORM FEATURES:
 - Smart Inventory: Track food items with expiration dates
-- Usage Analytics: Monitor consumption patterns
+- Usage Analytics: Monitor consumption patterns and identify imbalances
 - Food Preservative Guide: Learn preservation methods
 - Waste to Asset: Get creative ideas to repurpose food
 - Community: Share and donate food
+- Daily Tracker: Log food usage
+- Diet Planner: Plan balanced meals
+
+${userContext}
+
+${sessionInfo}
 
 ${historyContext ? `Previous conversation:\n${historyContext}\n\n` : ''}User: ${body.message}
 KhaddoKotha:`;
