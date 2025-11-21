@@ -154,10 +154,19 @@ async function migrate() {
         quantity NUMERIC(10,2) NOT NULL,
         category VARCHAR(50) NOT NULL,
         usage_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        image_url TEXT,
         created_at TIMESTAMP DEFAULT NOW()
       )
     `;
     console.log("   ✓ Created 'food_usage_logs' table");
+
+    // Add image_url column if it doesn't exist (for existing databases)
+    try {
+      await sql`ALTER TABLE food_usage_logs ADD COLUMN IF NOT EXISTS image_url TEXT`;
+      console.log("   ✓ Added image_url column to food_usage_logs");
+    } catch (err) {
+      // Column might already exist, ignore
+    }
 
     // Create indexes
     await sql`
@@ -186,11 +195,20 @@ async function migrate() {
         purchase_date DATE,
         expiration_date DATE,
         notes TEXT,
+        image_url TEXT,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `;
     console.log("   ✓ Created 'user_inventory' table");
+
+    // Add image_url column if it doesn't exist (for existing databases)
+    try {
+      await sql`ALTER TABLE user_inventory ADD COLUMN IF NOT EXISTS image_url TEXT`;
+      console.log("   ✓ Added image_url column to user_inventory");
+    } catch (err) {
+      // Column might already exist, ignore
+    }
 
     // Create indexes
     await sql`

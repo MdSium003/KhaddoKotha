@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS food_usage_logs (
   quantity NUMERIC(10,2) NOT NULL,
   category VARCHAR(50) NOT NULL,
   usage_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  image_url TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -108,6 +109,7 @@ CREATE TABLE IF NOT EXISTS user_inventory (
   purchase_date DATE,
   expiration_date DATE,
   notes TEXT,
+  image_url TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );

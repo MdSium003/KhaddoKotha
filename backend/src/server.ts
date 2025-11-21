@@ -2,8 +2,12 @@ import "dotenv/config";
 
 import cors from "cors";
 import express from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { neon } from "@neondatabase/serverless";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import Tesseract from "tesseract.js";
 import { z } from "zod";
 import {
   signupSchema,
@@ -34,6 +38,42 @@ const app = express();
 const sql = neon(config.DATABASE_URL);
 const genAI = config.GEMINI_API_KEY ? new GoogleGenerativeAI(config.GEMINI_API_KEY) : null;
 console.log("Gemini API Key configured:", !!config.GEMINI_API_KEY);
+console.log("Tesseract OCR configured: Ready (No API key required - Free & Open Source)");
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, `image-${uniqueSuffix}${ext}`);
+  },
+});
+
+const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  // Accept only JPG and PNG files
+  if (file.mimetype === "image/jpeg" || file.mimetype === "image/jpg" || file.mimetype === "image/png") {
+    cb(null, true);
+  } else {
+    cb(new Error("Only JPG and PNG images are allowed"));
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+});
 
 app.use(
   cors({
@@ -68,6 +108,9 @@ app.use(
 );
 
 app.use(express.json());
+
+// Serve uploaded images statically
+app.use("/uploads", express.static(uploadsDir));
 
 app.get("/api/health", async (_req, res) => {
   try {
@@ -438,6 +481,221 @@ app.put("/api/auth/profile", async (req, res) => {
   }
 });
 
+// Image upload endpoint
+app.post("/api/upload", upload.single("image"), async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: "No image file provided" });
+    }
+
+    // Return the URL path for the uploaded image
+    const imageUrl = `/uploads/${req.file.filename}`;
+    res.json({ imageUrl });
+  } catch (error) {
+    console.error("Image upload failed", error);
+    if (error instanceof multer.MulterError) {
+      if (error.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ message: "File size exceeds 5MB limit" });
+      }
+    }
+    res.status(500).json({ message: "Failed to upload image" });
+  }
+});
+
+// OCR endpoint for extracting text from images using Tesseract.js
+app.post("/api/ocr/extract", upload.single("image"), async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: "No image file provided" });
+    }
+
+    const imagePath = req.file.path;
+    let fullText = "";
+
+    try {
+      // Use Tesseract.js to extract text (completely free, no API key needed)
+      console.log("Starting OCR extraction with Tesseract...");
+      
+      const { data: { text } } = await Tesseract.recognize(
+        imagePath,
+        'eng', // English language
+        {
+          logger: (info) => {
+            // Optional: Log progress
+            if (info.status === 'recognizing text') {
+              console.log(`OCR Progress: ${info.progress * 100}%`);
+            }
+          }
+        }
+      );
+
+      fullText = text || "";
+
+      console.log(`OCR extraction completed. Extracted ${fullText.length} characters.`);
+
+      // Parse the extracted text to find items, quantities, and dates
+      const extractedData = parseReceiptText(fullText);
+
+      res.json({
+        success: true,
+        fullText: fullText.substring(0, 1000), // Limit full text response
+        extractedItems: extractedData.items,
+        extractedQuantities: extractedData.quantities,
+        extractedDates: extractedData.dates,
+        summary: extractedData.summary,
+      });
+    } catch (error) {
+      console.error("OCR extraction failed", error);
+      throw error;
+    } finally {
+      // Optionally delete the file after processing (or keep it for the user)
+      // fs.unlinkSync(imagePath);
+    }
+  } catch (error) {
+    console.error("OCR extraction failed", error);
+    res.status(500).json({
+      message: error instanceof Error ? error.message : "Failed to extract text from image",
+    });
+  }
+});
+
+// Helper function to parse receipt/food label text
+function parseReceiptText(text: string): {
+  items: Array<{ name: string; confidence: number }>;
+  quantities: Array<{ value: string; unit?: string; confidence: number }>;
+  dates: Array<{ type: "expiration" | "purchase" | "unknown"; value: string; confidence: number }>;
+  summary: string;
+} {
+  const lines = text.split("\n").filter((line) => line.trim().length > 0);
+  
+  const items: Array<{ name: string; confidence: number }> = [];
+  const quantities: Array<{ value: string; unit?: string; confidence: number }> = [];
+  const dates: Array<{ type: "expiration" | "purchase" | "unknown"; value: string; confidence: number }> = [];
+
+  // Common food item keywords
+  const foodKeywords = [
+    "milk", "bread", "eggs", "chicken", "beef", "pork", "fish", "rice", "pasta",
+    "apple", "banana", "orange", "tomato", "potato", "onion", "carrot", "lettuce",
+    "cheese", "yogurt", "butter", "flour", "sugar", "salt", "pepper", "oil",
+    "cereal", "juice", "water", "coffee", "tea", "cookies", "crackers",
+  ];
+
+  // Date patterns
+  const datePatterns = [
+    /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/g, // MM/DD/YYYY, DD-MM-YY, etc.
+    /(exp|expiration|expires|use by|best before|sell by)[\s:]+(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/gi,
+    /(purchase|purchased|bought)[\s:]+(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/gi,
+  ];
+
+  // Quantity patterns
+  const quantityPatterns = [
+    /(\d+(?:\.\d+)?)\s*(kg|g|lb|oz|liter|l|ml|pack|pcs|pieces|units?|x)/gi,
+    /\b(\d+(?:\.\d+)?)\s*(kg|g|lb|oz|liter|l|ml|pack|pcs|pieces|units?)\b/gi,
+  ];
+
+  // Extract items (lines that contain food keywords)
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+    for (const keyword of foodKeywords) {
+      if (lowerLine.includes(keyword)) {
+        // Try to extract item name (remove prices, quantities)
+        const cleaned = line
+          .replace(/\$[\d.,]+/g, "")
+          .replace(/\d+[\/\-]\d+[\/\-]\d+/g, "")
+          .replace(/\d+(?:\.\d+)?\s*(kg|g|lb|oz|liter|l|ml|pack|pcs|pieces|units?)/gi, "")
+          .trim();
+        
+        if (cleaned.length > 2 && cleaned.length < 50) {
+          items.push({ name: cleaned, confidence: 0.7 });
+        }
+      }
+    }
+  }
+
+  // Extract dates
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+    
+    // Check for expiration dates
+    if (/\b(exp|expiration|expires|use by|best before|sell by)\b/i.test(line)) {
+      const dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if (dateMatch) {
+        dates.push({
+          type: "expiration",
+          value: dateMatch[0],
+          confidence: 0.9,
+        });
+      }
+    }
+    
+    // Check for purchase dates
+    if (/\b(purchase|purchased|bought|date)\b/i.test(lowerLine)) {
+      const dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if (dateMatch) {
+        dates.push({
+          type: "purchase",
+          value: dateMatch[0],
+          confidence: 0.8,
+        });
+      }
+    }
+
+    // Generic date matches
+    const dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if (dateMatch && dates.every((d) => d.value !== dateMatch[0])) {
+      dates.push({
+        type: "unknown",
+        value: dateMatch[0],
+        confidence: 0.5,
+      });
+    }
+  }
+
+  // Extract quantities
+  for (const line of lines) {
+    for (const pattern of quantityPatterns) {
+      const matches = [...line.matchAll(pattern)];
+      for (const match of matches) {
+        const value = match[1];
+        const unit = match[2]?.toLowerCase();
+        quantities.push({
+          value,
+          unit,
+          confidence: 0.7,
+        });
+      }
+    }
+  }
+
+  // Remove duplicates
+  const uniqueItems = items.filter(
+    (item, index, self) => index === self.findIndex((t) => t.name.toLowerCase() === item.name.toLowerCase())
+  );
+
+  const uniqueDates = dates.filter(
+    (date, index, self) => index === self.findIndex((d) => d.value === date.value)
+  );
+
+  const summary = `Found ${uniqueItems.length} potential items, ${quantities.length} quantities, and ${uniqueDates.length} dates`;
+
+  return {
+    items: uniqueItems.slice(0, 20), // Limit to 20 items
+    quantities: quantities.slice(0, 10),
+    dates: uniqueDates.slice(0, 5),
+    summary,
+  };
+}
+
 // Food usage endpoints
 app.post("/api/food-usage", async (req, res) => {
   try {
@@ -455,6 +713,7 @@ app.post("/api/food-usage", async (req, res) => {
         quantity: z.coerce.number().positive(),
         category: z.string().min(1),
         usageDate: z.string().optional(),
+        imageUrl: z.union([z.string().url(), z.literal("")]).optional(),
       })
       .parse(req.body);
 
@@ -463,9 +722,9 @@ app.post("/api/food-usage", async (req, res) => {
       : new Date();
 
     const [log] = await sql`
-      INSERT INTO food_usage_logs (user_id, item_name, quantity, category, usage_date)
-      VALUES (${decoded.userId}, ${body.itemName}, ${body.quantity}, ${body.category}, ${usageDate.toISOString().split('T')[0]})
-      RETURNING id, item_name, quantity, category, usage_date, created_at
+      INSERT INTO food_usage_logs (user_id, item_name, quantity, category, usage_date, image_url)
+      VALUES (${decoded.userId}, ${body.itemName}, ${body.quantity}, ${body.category}, ${usageDate.toISOString().split('T')[0]}, ${body.imageUrl || null})
+      RETURNING id, item_name, quantity, category, usage_date, image_url, created_at
     `;
 
     res.status(201).json({
@@ -476,6 +735,7 @@ app.post("/api/food-usage", async (req, res) => {
         quantity: Number(log.quantity),
         category: log.category,
         usageDate: log.usage_date,
+        imageUrl: log.image_url || undefined,
         createdAt: log.created_at,
       },
     });
@@ -506,6 +766,7 @@ app.post("/api/food-usage/bulk", async (req, res) => {
             quantity: z.coerce.number().positive(),
             category: z.string().min(1),
             usageDate: z.string().optional(),
+            imageUrl: z.union([z.string().url(), z.literal("")]).optional(),
           })
         ),
       })
@@ -520,9 +781,9 @@ app.post("/api/food-usage/bulk", async (req, res) => {
     for (const log of body.logs) {
       try {
         const [inserted] = await sql`
-          INSERT INTO food_usage_logs (user_id, item_name, quantity, category, usage_date)
-          VALUES (${decoded.userId}, ${log.itemName}, ${log.quantity}, ${log.category}, ${dateStr})
-          RETURNING id, item_name, quantity, category, usage_date, created_at
+          INSERT INTO food_usage_logs (user_id, item_name, quantity, category, usage_date, image_url)
+          VALUES (${decoded.userId}, ${log.itemName}, ${log.quantity}, ${log.category}, ${dateStr}, ${log.imageUrl || null})
+          RETURNING id, item_name, quantity, category, usage_date, image_url, created_at
         `;
         insertedLogs.push({
           id: inserted.id,
@@ -530,6 +791,7 @@ app.post("/api/food-usage/bulk", async (req, res) => {
           quantity: Number(inserted.quantity),
           category: inserted.category,
           usageDate: inserted.usage_date,
+          imageUrl: inserted.image_url || undefined,
           createdAt: inserted.created_at,
         });
       } catch (err) {
@@ -565,7 +827,7 @@ app.get("/api/food-usage", async (req, res) => {
     const dateStr = dateFilter.toISOString().split('T')[0];
 
     const logs = await sql`
-      SELECT id, item_name, quantity, category, usage_date, created_at
+      SELECT id, item_name, quantity, category, usage_date, image_url, created_at
       FROM food_usage_logs
       WHERE user_id = ${decoded.userId}
         AND usage_date = ${dateStr}
@@ -579,6 +841,7 @@ app.get("/api/food-usage", async (req, res) => {
         quantity: Number(log.quantity),
         category: log.category,
         usageDate: log.usage_date,
+        imageUrl: log.image_url || undefined,
         createdAt: log.created_at,
       })),
     });
@@ -600,7 +863,7 @@ app.get("/api/user-inventory", async (req, res) => {
     const decoded = verifyToken(token);
 
     const items = await sql`
-      SELECT id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+      SELECT id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
       FROM user_inventory
       WHERE user_id = ${decoded.userId}
       ORDER BY expiration_date ASC NULLS LAST, item_name ASC
@@ -615,6 +878,7 @@ app.get("/api/user-inventory", async (req, res) => {
         purchaseDate: item.purchase_date,
         expirationDate: item.expiration_date,
         notes: item.notes,
+        imageUrl: item.image_url || undefined,
         createdAt: item.created_at,
         updatedAt: item.updated_at,
       })),
@@ -643,11 +907,12 @@ app.post("/api/user-inventory", async (req, res) => {
         purchaseDate: z.string().optional(),
         expirationDate: z.string().optional(),
         notes: z.string().optional(),
+        imageUrl: z.union([z.string().url(), z.literal("")]).optional(),
       })
       .parse(req.body);
 
     const [item] = await sql`
-      INSERT INTO user_inventory (user_id, item_name, quantity, category, purchase_date, expiration_date, notes)
+      INSERT INTO user_inventory (user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
       VALUES (
         ${decoded.userId},
         ${body.itemName},
@@ -655,9 +920,10 @@ app.post("/api/user-inventory", async (req, res) => {
         ${body.category},
         ${body.purchaseDate || null},
         ${body.expirationDate || null},
-        ${body.notes || null}
+        ${body.notes || null},
+        ${body.imageUrl || null}
       )
-      RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+      RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
     `;
 
     res.status(201).json({
@@ -670,6 +936,7 @@ app.post("/api/user-inventory", async (req, res) => {
         purchaseDate: item.purchase_date,
         expirationDate: item.expiration_date,
         notes: item.notes,
+        imageUrl: item.image_url || undefined,
         createdAt: item.created_at,
         updatedAt: item.updated_at,
       },
@@ -703,6 +970,7 @@ app.post("/api/user-inventory/bulk", async (req, res) => {
             purchaseDate: z.string().optional(),
             expirationDate: z.string().optional(),
             notes: z.string().optional(),
+            imageUrl: z.union([z.string().url(), z.literal("")]).optional(),
           })
         ),
       })
@@ -712,7 +980,7 @@ app.post("/api/user-inventory/bulk", async (req, res) => {
     for (const item of body.items) {
       try {
         const [inserted] = await sql`
-          INSERT INTO user_inventory (user_id, item_name, quantity, category, purchase_date, expiration_date, notes)
+          INSERT INTO user_inventory (user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
           VALUES (
             ${decoded.userId},
             ${item.itemName},
@@ -720,9 +988,10 @@ app.post("/api/user-inventory/bulk", async (req, res) => {
             ${item.category},
             ${item.purchaseDate || null},
             ${item.expirationDate || null},
-            ${item.notes || null}
+            ${item.notes || null},
+            ${item.imageUrl || null}
           )
-          RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+          RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
         `;
         insertedItems.push({
           id: inserted.id,
@@ -732,6 +1001,7 @@ app.post("/api/user-inventory/bulk", async (req, res) => {
           purchaseDate: inserted.purchase_date,
           expirationDate: inserted.expiration_date,
           notes: inserted.notes,
+          imageUrl: inserted.image_url || undefined,
           createdAt: inserted.created_at,
           updatedAt: inserted.updated_at,
         });
@@ -776,6 +1046,7 @@ app.put("/api/user-inventory/:id", async (req, res) => {
         purchaseDate: z.string().optional().nullable(),
         expirationDate: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
+        imageUrl: z.union([z.string().url(), z.literal("")]).optional().nullable(),
       })
       .parse(req.body);
 
@@ -798,13 +1069,16 @@ app.put("/api/user-inventory/:id", async (req, res) => {
     if (body.notes !== undefined) {
       await sql`UPDATE user_inventory SET notes = ${body.notes || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
     }
+    if (body.imageUrl !== undefined) {
+      await sql`UPDATE user_inventory SET image_url = ${body.imageUrl || null} WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
+    }
 
     // Always update the updated_at timestamp
     await sql`UPDATE user_inventory SET updated_at = NOW() WHERE id = ${itemId} AND user_id = ${decoded.userId}`;
 
     // Fetch the updated item
     const [updatedItem] = await sql`
-      SELECT id, item_name, quantity, category, purchase_date, expiration_date, notes, created_at, updated_at
+      SELECT id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
       FROM user_inventory
       WHERE id = ${itemId} AND user_id = ${decoded.userId}
     `;
@@ -823,6 +1097,7 @@ app.put("/api/user-inventory/:id", async (req, res) => {
         purchaseDate: updatedItem.purchase_date,
         expirationDate: updatedItem.expiration_date,
         notes: updatedItem.notes,
+        imageUrl: updatedItem.image_url || undefined,
         createdAt: updatedItem.created_at,
         updatedAt: updatedItem.updated_at,
       },

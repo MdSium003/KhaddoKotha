@@ -40,9 +40,13 @@ type HealthResponse = {
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAuthToken();
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
     ...(init?.headers as Record<string, string> || {}),
   };
+
+  // Don't set Content-Type for FormData (let browser set it with boundary)
+  if (!(init?.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
@@ -71,6 +75,107 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
       );
     }
     // Re-throw other errors
+    throw error;
+  }
+}
+
+// Image upload function
+export async function uploadImage(file: File): Promise<string> {
+  const token = getAuthToken();
+  const apiBaseUrl = getApiBaseUrl();
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/upload`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Upload failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    // Return full URL including the backend base URL
+    return `${apiBaseUrl}${data.imageUrl}`;
+  } catch (error) {
+    if (error instanceof TypeError && error.message.includes("fetch")) {
+      throw new Error(
+        `Unable to connect to the server. Please make sure the backend is running at ${apiBaseUrl}`
+      );
+    }
+    throw error;
+  }
+}
+
+// OCR types
+export type ExtractedItem = {
+  name: string;
+  confidence: number;
+};
+
+export type ExtractedQuantity = {
+  value: string;
+  unit?: string;
+  confidence: number;
+};
+
+export type ExtractedDate = {
+  type: "expiration" | "purchase" | "unknown";
+  value: string;
+  confidence: number;
+};
+
+export type OCRResponse = {
+  success: boolean;
+  fullText: string;
+  extractedItems: ExtractedItem[];
+  extractedQuantities: ExtractedQuantity[];
+  extractedDates: ExtractedDate[];
+  summary: string;
+};
+
+// OCR function to extract text from images
+export async function extractTextFromImage(file: File): Promise<OCRResponse> {
+  const token = getAuthToken();
+  const apiBaseUrl = getApiBaseUrl();
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/ocr/extract`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `OCR extraction failed with status ${response.status}`);
+    }
+
+    return await response.json() as OCRResponse;
+  } catch (error) {
+    if (error instanceof TypeError && error.message.includes("fetch")) {
+      throw new Error(
+        `Unable to connect to the server. Please make sure the backend is running at ${apiBaseUrl}`
+      );
+    }
     throw error;
   }
 }
@@ -363,6 +468,7 @@ export type FoodUsageLog = {
   quantity: number;
   category: string;
   usageDate: string;
+  imageUrl?: string;
   createdAt: string;
 };
 
@@ -371,6 +477,7 @@ export type FoodUsageLogData = {
   quantity: number;
   category: string;
   usageDate?: string;
+  imageUrl?: string;
 };
 
 export type FoodUsageLogResponse = {
@@ -427,6 +534,7 @@ export type UserInventoryItem = {
   purchaseDate?: string | null;
   expirationDate?: string | null;
   notes?: string | null;
+  imageUrl?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -438,6 +546,7 @@ export type UserInventoryItemData = {
   purchaseDate?: string;
   expirationDate?: string;
   notes?: string;
+  imageUrl?: string;
 };
 
 export type UserInventoryItemResponse = {

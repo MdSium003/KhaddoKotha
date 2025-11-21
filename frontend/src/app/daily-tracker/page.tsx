@@ -10,9 +10,12 @@ import {
     createFoodUsageLog,
     bulkCreateFoodUsageLogs,
     fetchFoodInventory,
+    uploadImage,
+    extractTextFromImage,
     type FoodUsageLog,
     type FoodUsageLogData,
     type FoodInventoryItem,
+    type OCRResponse,
 } from "@/lib/api";
 
 export default function DailyTrackerPage() {
@@ -20,12 +23,17 @@ export default function DailyTrackerPage() {
     const router = useRouter();
 
     const [usageDate, setUsageDate] = useState(new Date().toISOString().split("T")[0]);
-    const [foodUsageMethod, setFoodUsageMethod] = useState<"manual" | "dropdown" | "csv">("manual");
+    const [foodUsageMethod, setFoodUsageMethod] = useState<"manual" | "dropdown" | "csv" | "ocr">("manual");
     const [manualEntries, setManualEntries] = useState<FoodUsageLogData[]>([
-        { itemName: "", quantity: 1, category: "" },
+        { itemName: "", quantity: 1, category: "", imageUrl: "" },
     ]);
+    const [manualEntryImages, setManualEntryImages] = useState<(File | null)[]>([null]);
+    const [uploadingImages, setUploadingImages] = useState<boolean[]>([false]);
     const [selectedInventoryItem, setSelectedInventoryItem] = useState<number | "">("");
     const [selectedQuantity, setSelectedQuantity] = useState(1);
+    const [selectedImage, setSelectedImage] = useState<File | null>(null);
+    const [uploadingSelectedImage, setUploadingSelectedImage] = useState(false);
+    const [selectedImageUrl, setSelectedImageUrl] = useState<string>("");
     const [csvFile, setCsvFile] = useState<File | null>(null);
     const [foodUsageLogs, setFoodUsageLogs] = useState<FoodUsageLog[]>([]);
     const [inventoryItems, setInventoryItems] = useState<FoodInventoryItem[]>([]);
@@ -33,6 +41,14 @@ export default function DailyTrackerPage() {
     const [csvLoading, setCsvLoading] = useState(false);
     const [error, setError] = useState("");
     const [success, setSuccess] = useState("");
+    
+    // OCR state for daily tracker
+    const [ocrFileDaily, setOcrFileDaily] = useState<File | null>(null);
+    const [ocrLoadingDaily, setOcrLoadingDaily] = useState(false);
+    const [ocrResultDaily, setOcrResultDaily] = useState<OCRResponse | null>(null);
+    const [showOcrModalDaily, setShowOcrModalDaily] = useState(false);
+    const [ocrExtractedLogs, setOcrExtractedLogs] = useState<FoodUsageLogData[]>([]);
+    const [ocrProgressDaily, setOcrProgressDaily] = useState(0);
 
     useEffect(() => {
         if (!authLoading && !user) {
@@ -66,11 +82,13 @@ export default function DailyTrackerPage() {
     };
 
     const handleAddManualEntry = () => {
-        setManualEntries([...manualEntries, { itemName: "", quantity: 1, category: "" }]);
+        setManualEntries([...manualEntries, { itemName: "", quantity: 1, category: "", imageUrl: "" }]);
+        setManualEntryImages([...manualEntryImages, null]);
     };
 
     const handleRemoveManualEntry = (index: number) => {
         setManualEntries(manualEntries.filter((_, i) => i !== index));
+        setManualEntryImages(manualEntryImages.filter((_, i) => i !== index));
     };
 
     const handleManualEntryChange = (
@@ -81,6 +99,186 @@ export default function DailyTrackerPage() {
         const updated = [...manualEntries];
         updated[index] = { ...updated[index], [field]: value };
         setManualEntries(updated);
+    };
+
+    const handleImageChange = async (index: number, file: File | null) => {
+        if (!file) {
+            const updatedImages = [...manualEntryImages];
+            updatedImages[index] = null;
+            setManualEntryImages(updatedImages);
+            return;
+        }
+
+        // Validate file type
+        if (!file.type.match(/^image\/(jpeg|jpg|png)$/)) {
+            setError("Please upload a JPG or PNG image");
+            return;
+        }
+
+        // Validate file size (5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            setError("Image size must be less than 5MB");
+            return;
+        }
+
+        const updatedUploading = [...uploadingImages];
+        updatedUploading[index] = true;
+        setUploadingImages(updatedUploading);
+
+        try {
+            const imageUrl = await uploadImage(file);
+            const updatedEntries = [...manualEntries];
+            updatedEntries[index] = { ...updatedEntries[index], imageUrl };
+            setManualEntries(updatedEntries);
+
+            const updatedImages = [...manualEntryImages];
+            updatedImages[index] = file;
+            setManualEntryImages(updatedImages);
+        } catch (error: any) {
+            setError(error.message || "Failed to upload image");
+        } finally {
+            const updatedUploading = [...uploadingImages];
+            updatedUploading[index] = false;
+            setUploadingImages(updatedUploading);
+        }
+    };
+
+    const handleSelectedImageChange = async (file: File | null) => {
+        if (!file) {
+            setSelectedImage(null);
+            setSelectedImageUrl("");
+            return;
+        }
+
+        // Validate file type
+        if (!file.type.match(/^image\/(jpeg|jpg|png)$/)) {
+            setError("Please upload a JPG or PNG image");
+            return;
+        }
+
+        // Validate file size (5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            setError("Image size must be less than 5MB");
+            return;
+        }
+
+        setUploadingSelectedImage(true);
+        try {
+            const imageUrl = await uploadImage(file);
+            setSelectedImage(file);
+            setSelectedImageUrl(imageUrl);
+        } catch (error: any) {
+            setError(error.message || "Failed to upload image");
+        } finally {
+            setUploadingSelectedImage(false);
+        }
+    };
+
+    // OCR Functions for daily tracker
+    const handleOcrExtractDaily = async () => {
+        if (!ocrFileDaily) {
+            setError("Please select an image file");
+            return;
+        }
+
+        setOcrLoadingDaily(true);
+        setError("");
+        setOcrProgressDaily(0);
+
+        try {
+            // Simulate progress updates
+            const progressInterval = setInterval(() => {
+                setOcrProgressDaily((prev) => {
+                    if (prev >= 90) {
+                        clearInterval(progressInterval);
+                        return prev;
+                    }
+                    return prev + 10;
+                });
+            }, 200);
+
+            const result = await extractTextFromImage(ocrFileDaily);
+            clearInterval(progressInterval);
+            setOcrProgressDaily(100);
+            setOcrResultDaily(result);
+
+            // Process extracted data into usage logs
+            const logs: FoodUsageLogData[] = [];
+            
+            for (const extractedItem of result.extractedItems) {
+                // Find matching quantity
+                const quantity = result.extractedQuantities.length > 0 
+                    ? parseFloat(result.extractedQuantities[0].value) || 1 
+                    : 1;
+                
+                // Try to determine category from item name
+                const lowerName = extractedItem.name.toLowerCase();
+                let category = "other";
+                if (lowerName.includes("milk") || lowerName.includes("cheese") || lowerName.includes("yogurt") || lowerName.includes("dairy")) {
+                    category = "dairy";
+                } else if (lowerName.includes("apple") || lowerName.includes("banana") || lowerName.includes("orange") || lowerName.includes("fruit")) {
+                    category = "fruits";
+                } else if (lowerName.includes("tomato") || lowerName.includes("carrot") || lowerName.includes("potato") || lowerName.includes("vegetable")) {
+                    category = "vegetables";
+                } else if (lowerName.includes("bread") || lowerName.includes("rice") || lowerName.includes("pasta") || lowerName.includes("grain")) {
+                    category = "grains";
+                } else if (lowerName.includes("chicken") || lowerName.includes("beef") || lowerName.includes("pork") || lowerName.includes("fish") || lowerName.includes("meat")) {
+                    category = "meat";
+                }
+
+                logs.push({
+                    itemName: extractedItem.name,
+                    quantity,
+                    category,
+                    usageDate,
+                    imageUrl: undefined, // Can be added later if needed
+                });
+            }
+
+            setOcrExtractedLogs(logs);
+            setShowOcrModalDaily(true);
+            setOcrProgressDaily(0);
+        } catch (error: any) {
+            setError(error.message || "Failed to extract text from image");
+            setOcrProgressDaily(0);
+        } finally {
+            setOcrLoadingDaily(false);
+        }
+    };
+
+    const handleOcrLogsChange = (index: number, field: keyof FoodUsageLogData, value: string | number) => {
+        const updated = [...ocrExtractedLogs];
+        updated[index] = { ...updated[index], [field]: value };
+        setOcrExtractedLogs(updated);
+    };
+
+    const handleOcrRemoveLog = (index: number) => {
+        setOcrExtractedLogs(ocrExtractedLogs.filter((_, i) => i !== index));
+    };
+
+    const handleAddOcrLogs = async () => {
+        if (ocrExtractedLogs.length === 0) {
+            setError("No items to add");
+            return;
+        }
+
+        setLoading(true);
+        setError("");
+        setSuccess("");
+
+        try {
+            await bulkCreateFoodUsageLogs(ocrExtractedLogs);
+            setSuccess(`Successfully logged ${ocrExtractedLogs.length} food usage entries from OCR!`);
+            setShowOcrModalDaily(false);
+            setOcrFileDaily(null);
+            setOcrResultDaily(null);
+            setOcrExtractedLogs([]);
+            await loadFoodUsageLogs();
+        } catch (error: any) {
+            setError(error.message || "Failed to add logs");
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleSubmitManualEntries = async () => {
@@ -104,9 +302,14 @@ export default function DailyTrackerPage() {
                 usageDate,
             }));
 
-            await bulkCreateFoodUsageLogs(entriesWithDate);
+            const entriesWithImageUrls = entriesWithDate.map((entry) => ({
+                ...entry,
+                imageUrl: entry.imageUrl || undefined,
+            }));
+            await bulkCreateFoodUsageLogs(entriesWithImageUrls);
             setSuccess(`Successfully logged ${validEntries.length} food usage entries!`);
-            setManualEntries([{ itemName: "", quantity: 1, category: "" }]);
+            setManualEntries([{ itemName: "", quantity: 1, category: "", imageUrl: "" }]);
+            setManualEntryImages([null]);
             await loadFoodUsageLogs();
             setTimeout(() => setSuccess(""), 3000);
         } catch (err) {
@@ -137,11 +340,14 @@ export default function DailyTrackerPage() {
                 quantity: selectedQuantity,
                 category: item.category,
                 usageDate,
+                imageUrl: selectedImageUrl || undefined,
             });
 
             setSuccess("Food usage logged successfully!");
             setSelectedInventoryItem("");
             setSelectedQuantity(1);
+            setSelectedImage(null);
+            setSelectedImageUrl("");
             await loadFoodUsageLogs();
             setTimeout(() => setSuccess(""), 3000);
         } catch (err) {
@@ -336,7 +542,7 @@ export default function DailyTrackerPage() {
                             {/* Method Selection Card */}
                             <div className="rounded-3xl border border-white/60 bg-white p-6 shadow-lg">
                                 <h3 className="text-lg font-bold text-slate-900 mb-4">Log Food Usage</h3>
-                                <div className="grid grid-cols-3 gap-3 mb-6">
+                                <div className="grid grid-cols-4 gap-3 mb-6">
                                     <button
                                         onClick={() => setFoodUsageMethod("manual")}
                                         className={`flex flex-col items-center gap-2 rounded-xl px-4 py-4 text-sm font-semibold transition-all ${foodUsageMethod === "manual"
@@ -373,6 +579,19 @@ export default function DailyTrackerPage() {
                                         </svg>
                                         CSV
                                     </button>
+                                    <button
+                                        onClick={() => setFoodUsageMethod("ocr")}
+                                        className={`flex flex-col items-center gap-2 rounded-xl px-4 py-4 text-sm font-semibold transition-all ${foodUsageMethod === "ocr"
+                                                ? "bg-emerald-600 text-white shadow-lg scale-105"
+                                                : "border-2 border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
+                                            }`}
+                                    >
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        </svg>
+                                        📷 OCR
+                                    </button>
                                 </div>
 
                                 {/* Manual Entry Form */}
@@ -394,51 +613,80 @@ export default function DailyTrackerPage() {
                                             {manualEntries.map((entry, index) => (
                                                 <div
                                                     key={index}
-                                                    className="grid gap-3 rounded-xl border-2 border-slate-200 bg-slate-50 p-4 md:grid-cols-[2fr,1fr,2fr,auto]"
+                                                    className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4 space-y-3"
                                                 >
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Item name"
-                                                        value={entry.itemName}
-                                                        onChange={(e) =>
-                                                            handleManualEntryChange(index, "itemName", e.target.value)
-                                                        }
-                                                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                                                    />
-                                                    <input
-                                                        type="number"
-                                                        placeholder="Qty"
-                                                        min="0.01"
-                                                        step="0.01"
-                                                        value={entry.quantity}
-                                                        onChange={(e) =>
-                                                            handleManualEntryChange(
-                                                                index,
-                                                                "quantity",
-                                                                parseFloat(e.target.value) || 0
-                                                            )
-                                                        }
-                                                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                                                    />
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Category"
-                                                        value={entry.category}
-                                                        onChange={(e) =>
-                                                            handleManualEntryChange(index, "category", e.target.value)
-                                                        }
-                                                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                                                    />
-                                                    {manualEntries.length > 1 && (
-                                                        <button
-                                                            onClick={() => handleRemoveManualEntry(index)}
-                                                            className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-red-700 transition hover:bg-red-100"
-                                                        >
-                                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                            </svg>
-                                                        </button>
-                                                    )}
+                                                    <div className="grid gap-3 md:grid-cols-[2fr,1fr,2fr,auto]">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Item name"
+                                                            value={entry.itemName}
+                                                            onChange={(e) =>
+                                                                handleManualEntryChange(index, "itemName", e.target.value)
+                                                            }
+                                                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                                                        />
+                                                        <input
+                                                            type="number"
+                                                            placeholder="Qty"
+                                                            min="0.01"
+                                                            step="0.01"
+                                                            value={entry.quantity}
+                                                            onChange={(e) =>
+                                                                handleManualEntryChange(
+                                                                    index,
+                                                                    "quantity",
+                                                                    parseFloat(e.target.value) || 0
+                                                                )
+                                                            }
+                                                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                                                        />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Category"
+                                                            value={entry.category}
+                                                            onChange={(e) =>
+                                                                handleManualEntryChange(index, "category", e.target.value)
+                                                            }
+                                                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                                                        />
+                                                        {manualEntries.length > 1 && (
+                                                            <button
+                                                                onClick={() => handleRemoveManualEntry(index)}
+                                                                className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-red-700 transition hover:bg-red-100"
+                                                            >
+                                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                </svg>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                                            Upload Image (Receipt/Label) - JPG/PNG
+                                                        </label>
+                                                        <div className="flex items-center gap-3">
+                                                            <input
+                                                                type="file"
+                                                                accept="image/jpeg,image/jpg,image/png"
+                                                                onChange={(e) => handleImageChange(index, e.target.files?.[0] || null)}
+                                                                className="hidden"
+                                                                id={`daily-image-upload-${index}`}
+                                                            />
+                                                            <label
+                                                                htmlFor={`daily-image-upload-${index}`}
+                                                                className="flex-1 cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 transition"
+                                                            >
+                                                                {uploadingImages[index] ? "Uploading..." : manualEntryImages[index] ? manualEntryImages[index]!.name : "Choose Image"}
+                                                            </label>
+                                                            {entry.imageUrl && (
+                                                                <img
+                                                                    src={entry.imageUrl}
+                                                                    alt="Preview"
+                                                                    className="w-12 h-12 object-cover rounded-lg border border-slate-300"
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             ))}
                                             <button
@@ -486,6 +734,33 @@ export default function DailyTrackerPage() {
                                                 {loading ? "Adding..." : "Add"}
                                             </button>
                                         </div>
+                                        <div>
+                                            <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                                Upload Image (Receipt/Label) - JPG/PNG
+                                            </label>
+                                            <div className="flex items-center gap-3">
+                                                <input
+                                                    type="file"
+                                                    accept="image/jpeg,image/jpg,image/png"
+                                                    onChange={(e) => handleSelectedImageChange(e.target.files?.[0] || null)}
+                                                    className="hidden"
+                                                    id="dropdown-image-upload"
+                                                />
+                                                <label
+                                                    htmlFor="dropdown-image-upload"
+                                                    className="flex-1 cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 transition"
+                                                >
+                                                    {uploadingSelectedImage ? "Uploading..." : selectedImage ? selectedImage.name : "Choose Image"}
+                                                </label>
+                                                {selectedImageUrl && (
+                                                    <img
+                                                        src={selectedImageUrl}
+                                                        alt="Preview"
+                                                        className="w-12 h-12 object-cover rounded-lg border border-slate-300"
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 
@@ -520,6 +795,68 @@ export default function DailyTrackerPage() {
                                                 className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 {csvLoading ? "Uploading..." : "Upload CSV"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* OCR Scan */}
+                                {foodUsageMethod === "ocr" && (
+                                    <div className="space-y-4">
+                                        <h4 className="text-sm font-semibold text-slate-700">Scan Receipt/Food Label</h4>
+                                        <div className="space-y-3">
+                                            <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                                                <input
+                                                    type="file"
+                                                    accept="image/jpeg,image/jpg,image/png"
+                                                    onChange={(e) => setOcrFileDaily(e.target.files?.[0] || null)}
+                                                    className="hidden"
+                                                    id="ocr-upload-daily"
+                                                />
+                                                <label htmlFor="ocr-upload-daily" className="cursor-pointer">
+                                                    <svg className="w-12 h-12 mx-auto text-slate-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    </svg>
+                                                    <p className="text-sm font-semibold text-slate-700 mb-1">
+                                                        {ocrFileDaily ? ocrFileDaily.name : "Upload Receipt or Food Label"}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500">
+                                                        Extract items and quantities automatically from your receipt
+                                                    </p>
+                                                    {ocrFileDaily && (
+                                                        <div className="mt-4">
+                                                            <img
+                                                                src={URL.createObjectURL(ocrFileDaily)}
+                                                                alt="Preview"
+                                                                className="max-w-full max-h-48 mx-auto rounded-lg border border-slate-300"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </label>
+                                            </div>
+
+                                            {ocrLoadingDaily && (
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center justify-between text-sm text-slate-600">
+                                                        <span>Extracting text from image...</span>
+                                                        <span>{Math.round(ocrProgressDaily)}%</span>
+                                                    </div>
+                                                    <div className="w-full bg-slate-200 rounded-full h-2">
+                                                        <div
+                                                            className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
+                                                            style={{ width: `${ocrProgressDaily}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <button
+                                                onClick={handleOcrExtractDaily}
+                                                disabled={ocrLoadingDaily || !ocrFileDaily}
+                                                className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                {ocrLoadingDaily ? "Scanning Image..." : "Extract with OCR"}
                                             </button>
                                         </div>
                                     </div>
@@ -566,6 +903,15 @@ export default function DailyTrackerPage() {
                                                         </p>
                                                     </div>
                                                 </div>
+                                                {log.imageUrl && (
+                                                    <div className="mt-2">
+                                                        <img
+                                                            src={log.imageUrl}
+                                                            alt={log.itemName}
+                                                            className="w-full h-24 object-cover rounded-lg border border-slate-300"
+                                                        />
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
@@ -578,5 +924,98 @@ export default function DailyTrackerPage() {
                 <SiteFooter />
             </div>
         </div>
+
+        {/* Modal for OCR extracted logs confirmation */}
+        {showOcrModalDaily && ocrResultDaily && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl p-8 max-w-4xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+                    <div className="flex justify-between items-start mb-6">
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-900">Review Extracted Food Usage</h2>
+                            <p className="text-sm text-slate-600 mt-1">
+                                {ocrResultDaily.summary} • Please review and edit the extracted data before adding.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setShowOcrModalDaily(false)}
+                            className="text-slate-400 hover:text-slate-600"
+                        >
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    {ocrExtractedLogs.length === 0 ? (
+                        <div className="text-center py-8">
+                            <p className="text-slate-600 mb-4">No items could be extracted from the image.</p>
+                            <p className="text-sm text-slate-500 mb-4">Extracted text:</p>
+                            <div className="bg-slate-50 p-4 rounded-lg text-left text-sm text-slate-600 max-h-40 overflow-y-auto">
+                                {ocrResultDaily.fullText || "No text found"}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4 mb-6">
+                            {ocrExtractedLogs.map((log, index) => (
+                                <div key={index} className="p-4 bg-slate-50 rounded-lg space-y-3 border border-slate-200">
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="font-semibold text-slate-700">Entry {index + 1}</h3>
+                                        <button
+                                            onClick={() => handleOcrRemoveLog(index)}
+                                            className="text-red-500 hover:text-red-700 text-sm"
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+
+                                    <input
+                                        type="text"
+                                        placeholder="Item Name"
+                                        value={log.itemName}
+                                        onChange={(e) => handleOcrLogsChange(index, "itemName", e.target.value)}
+                                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                    />
+
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <input
+                                            type="number"
+                                            placeholder="Quantity"
+                                            value={log.quantity}
+                                            onChange={(e) => handleOcrLogsChange(index, "quantity", parseFloat(e.target.value) || 0)}
+                                            min="0.01"
+                                            step="0.01"
+                                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                        />
+                                        <input
+                                            type="text"
+                                            placeholder="Category"
+                                            value={log.category}
+                                            onChange={(e) => handleOcrLogsChange(index, "category", e.target.value)}
+                                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="flex gap-3">
+                        <button
+                            onClick={() => setShowOcrModalDaily(false)}
+                            className="flex-1 py-3 border-2 border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleAddOcrLogs}
+                            disabled={loading || ocrExtractedLogs.length === 0}
+                            className="flex-1 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                            {loading ? "Adding..." : `Add ${ocrExtractedLogs.length} Entry(ies)`}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
     );
 }
