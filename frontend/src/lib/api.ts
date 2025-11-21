@@ -607,6 +607,7 @@ export async function updateUserInventoryItem(
 // Delete an inventory item
 export async function deleteUserInventoryItem(id: number): Promise<void> {
   await request<{ message: string }>(`/api/user-inventory/${id}`, {
+    method: "DELETE",
   });
 }
 

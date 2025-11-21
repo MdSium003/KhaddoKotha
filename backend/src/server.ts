@@ -974,23 +974,45 @@ app.post("/api/user-inventory", async (req, res) => {
       })
       .parse(req.body);
 
-    const [item] = await sql`
-      INSERT INTO user_inventory(user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
-  VALUES(
-    ${decoded.userId},
-    ${body.itemName},
-    ${body.quantity},
-    ${body.category},
-    ${body.purchaseDate || null},
-    ${body.expirationDate || null},
-    ${body.notes || null},
-    ${body.imageUrl || null}
-  )
-      RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
+    // Check if item already exists
+    const existingItems = await sql`
+      SELECT id, quantity FROM user_inventory 
+      WHERE user_id = ${decoded.userId} 
+      AND LOWER(item_name) = LOWER(${body.itemName})
+      AND (expiration_date = ${body.expirationDate || null} OR (expiration_date IS NULL AND ${body.expirationDate || null}::date IS NULL))
     `;
 
+    let item;
+
+    if (existingItems.length > 0) {
+      const existingItem = existingItems[0];
+      const newQuantity = Number(existingItem.quantity) + body.quantity;
+
+      [item] = await sql`
+        UPDATE user_inventory 
+        SET quantity = ${newQuantity}, updated_at = NOW()
+        WHERE id = ${existingItem.id}
+        RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
+      `;
+    } else {
+      [item] = await sql`
+        INSERT INTO user_inventory(user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
+        VALUES(
+          ${decoded.userId},
+          ${body.itemName},
+          ${body.quantity},
+          ${body.category},
+          ${body.purchaseDate || null},
+          ${body.expirationDate || null},
+          ${body.notes || null},
+          ${body.imageUrl || null}
+        )
+        RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
+      `;
+    }
+
     res.status(201).json({
-      message: "Item added to inventory successfully",
+      message: existingItems.length > 0 ? "Item quantity updated successfully" : "Item added to inventory successfully",
       item: {
         id: item.id,
         itemName: item.item_name,
@@ -1042,20 +1064,43 @@ app.post("/api/user-inventory/bulk", async (req, res) => {
     const insertedItems = [];
     for (const item of body.items) {
       try {
-        const [inserted] = await sql`
-          INSERT INTO user_inventory(user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
-  VALUES(
-    ${decoded.userId},
-    ${item.itemName},
-    ${item.quantity},
-    ${item.category},
-    ${item.purchaseDate || null},
-    ${item.expirationDate || null},
-    ${item.notes || null},
-    ${item.imageUrl || null}
-  )
-          RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
-    `;
+        // Check if item already exists
+        const existingItems = await sql`
+          SELECT id, quantity FROM user_inventory 
+          WHERE user_id = ${decoded.userId} 
+          AND LOWER(item_name) = LOWER(${item.itemName})
+          AND (expiration_date = ${item.expirationDate || null} OR (expiration_date IS NULL AND ${item.expirationDate || null}::date IS NULL))
+        `;
+
+        let inserted;
+
+        if (existingItems.length > 0) {
+          const existingItem = existingItems[0];
+          const newQuantity = Number(existingItem.quantity) + item.quantity;
+
+          [inserted] = await sql`
+            UPDATE user_inventory 
+            SET quantity = ${newQuantity}, updated_at = NOW()
+            WHERE id = ${existingItem.id}
+            RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
+          `;
+        } else {
+          [inserted] = await sql`
+            INSERT INTO user_inventory(user_id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url)
+            VALUES(
+              ${decoded.userId},
+              ${item.itemName},
+              ${item.quantity},
+              ${item.category},
+              ${item.purchaseDate || null},
+              ${item.expirationDate || null},
+              ${item.notes || null},
+              ${item.imageUrl || null}
+            )
+            RETURNING id, item_name, quantity, category, purchase_date, expiration_date, notes, image_url, created_at, updated_at
+          `;
+        }
+
         insertedItems.push({
           id: inserted.id,
           itemName: inserted.item_name,
