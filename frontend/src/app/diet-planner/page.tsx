@@ -16,6 +16,10 @@ export default function DietPlannerPage() {
     const [dietPlan, setDietPlan] = useState<DietPlan | null>(null);
     const [dietLoading, setDietLoading] = useState(false);
     const [dietError, setDietError] = useState("");
+<<<<<<< Updated upstream
+=======
+    const [selectedDay, setSelectedDay] = useState("Monday");
+>>>>>>> Stashed changes
 
     useEffect(() => {
         if (!authLoading && !user) {
@@ -200,6 +204,7 @@ export default function DietPlannerPage() {
                                         <h3 className="text-xl font-bold text-orange-900">Breakfast</h3>
                                     </div>
                                     <ul className="space-y-3">
+<<<<<<< Updated upstream
                                         {dietPlan.meals.breakfast.map((item, i) => (
                                             <li key={i} className="flex items-start justify-between gap-2 bg-white/60 rounded-lg p-3">
                                                 <span className="text-sm font-medium text-slate-800 flex-1">{item.item}</span>
@@ -209,6 +214,30 @@ export default function DietPlannerPage() {
                                                     }`}>
                                                     {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
                                                 </span>
+=======
+                                        {(dietPlan.weeklyMeals
+                                            ? dietPlan.weeklyMeals[selectedDay]?.breakfast || []
+                                            : dietPlan.meals?.breakfast || []
+                                        ).map((item, i) => (
+                                            <li key={i} className="bg-white/60 rounded-lg p-3 space-y-2">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <span className="text-sm font-medium text-slate-800 flex-1">{item.item}</span>
+                                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                                        {getPriorityBadge(item.priority)}
+                                                        <span className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${item.source === 'Home'
+                                                            ? 'bg-blue-200 text-blue-800'
+                                                            : 'bg-amber-200 text-amber-800'
+                                                            }`}>
+                                                            {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                {item.substitute && (
+                                                    <div className="text-xs text-slate-600 bg-yellow-50 px-2 py-1 rounded border border-yellow-200">
+                                                        💡 Substitute: {item.substitute}
+                                                    </div>
+                                                )}
+>>>>>>> Stashed changes
                                             </li>
                                         ))}
                                     </ul>
@@ -222,6 +251,7 @@ export default function DietPlannerPage() {
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                             </svg>
                                         </div>
+<<<<<<< Updated upstream
                                         <h3 className="text-xl font-bold text-emerald-900">Lunch</h3>
                                     </div>
                                     <ul className="space-y-3">
@@ -234,6 +264,35 @@ export default function DietPlannerPage() {
                                                     }`}>
                                                     {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
                                                 </span>
+=======
+                                        <h3 className="text-xl font-bold text-emerald-900">
+                                            Lunch {dietPlan.weeklyMeals && `- ${selectedDay}`}
+                                        </h3>
+                                    </div>
+                                    <ul className="space-y-3">
+                                        {(dietPlan.weeklyMeals
+                                            ? dietPlan.weeklyMeals[selectedDay]?.lunch || []
+                                            : dietPlan.meals?.lunch || []
+                                        ).map((item, i) => (
+                                            <li key={i} className="bg-white/60 rounded-lg p-3 space-y-2">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <span className="text-sm font-medium text-slate-800 flex-1">{item.item}</span>
+                                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                                        {getPriorityBadge(item.priority)}
+                                                        <span className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${item.source === 'Home'
+                                                            ? 'bg-blue-200 text-blue-800'
+                                                            : 'bg-amber-200 text-amber-800'
+                                                            }`}>
+                                                            {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                {item.substitute && (
+                                                    <div className="text-xs text-slate-600 bg-yellow-50 px-2 py-1 rounded border border-yellow-200">
+                                                        💡 Substitute: {item.substitute}
+                                                    </div>
+                                                )}
+>>>>>>> Stashed changes
                                             </li>
                                         ))}
                                     </ul>
@@ -247,6 +306,7 @@ export default function DietPlannerPage() {
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
                                             </svg>
                                         </div>
+<<<<<<< Updated upstream
                                         <h3 className="text-xl font-bold text-purple-900">Dinner</h3>
                                     </div>
                                     <ul className="space-y-3">
@@ -259,11 +319,125 @@ export default function DietPlannerPage() {
                                                     }`}>
                                                     {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
                                                 </span>
+=======
+                                        <h3 className="text-xl font-bold text-purple-900">
+                                            Dinner {dietPlan.weeklyMeals && `- ${selectedDay}`}
+                                        </h3>
+                                    </div>
+                                    <ul className="space-y-3">
+                                        {(dietPlan.weeklyMeals
+                                            ? dietPlan.weeklyMeals[selectedDay]?.dinner || []
+                                            : dietPlan.meals?.dinner || []
+                                        ).map((item, i) => (
+                                            <li key={i} className="bg-white/60 rounded-lg p-3 space-y-2">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <span className="text-sm font-medium text-slate-800 flex-1">{item.item}</span>
+                                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                                        {getPriorityBadge(item.priority)}
+                                                        <span className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${item.source === 'Home'
+                                                            ? 'bg-blue-200 text-blue-800'
+                                                            : 'bg-amber-200 text-amber-800'
+                                                            }`}>
+                                                            {item.source === 'Home' ? '🏠 Home' : `🛒 $${item.cost.toFixed(2)}`}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                {item.substitute && (
+                                                    <div className="text-xs text-slate-600 bg-yellow-50 px-2 py-1 rounded border border-yellow-200">
+                                                        💡 Substitute: {item.substitute}
+                                                    </div>
+                                                )}
+>>>>>>> Stashed changes
                                             </li>
                                         ))}
                                     </ul>
                                 </div>
                             </div>
+
+<<<<<<< Updated upstream
+                            {/* Summary Card */}
+                            <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+                                <h3 className="text-2xl font-bold text-slate-900 mb-6">Plan Summary</h3>
+
+                                <div className="grid gap-6 md:grid-cols-2">
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                                            <span className="font-semibold text-slate-700">Total Cost:</span>
+                                            <span className={`text-2xl font-bold ${dietPlan.totalCost <= dietBudget ? 'text-emerald-600' : 'text-red-600'
+                                                }`}>
+                                                ${dietPlan.totalCost.toFixed(2)}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                                            <span className="font-semibold text-slate-700">Budget:</span>
+                                            <span className="text-2xl font-bold text-slate-900">${dietBudget.toFixed(2)}</span>
+                                        </div>
+                                        {dietPlan.totalCost <= dietBudget && (
+                                            <div className="flex items-center justify-between p-4 bg-emerald-50 rounded-xl">
+                                                <span className="font-semibold text-emerald-700">Savings:</span>
+                                                <span className="text-2xl font-bold text-emerald-600">
+                                                    ${(dietBudget - dietPlan.totalCost).toFixed(2)}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+
+=======
+                            {/* Alternatives Section */}
+                            {(() => {
+                                const currentMeals = dietPlan.weeklyMeals
+                                    ? dietPlan.weeklyMeals[selectedDay]
+                                    : dietPlan.meals;
+
+                                const hasAlternatives = currentMeals?.alternatives && (
+                                    (currentMeals.alternatives.breakfast && currentMeals.alternatives.breakfast.length > 0) ||
+                                    (currentMeals.alternatives.lunch && currentMeals.alternatives.lunch.length > 0) ||
+                                    (currentMeals.alternatives.dinner && currentMeals.alternatives.dinner.length > 0)
+                                );
+
+                                if (!hasAlternatives) return null;
+
+                                return (
+                                    <div className="rounded-3xl border-2 border-white/80 bg-white/95 backdrop-blur-sm p-6 shadow-2xl">
+                                        <h3 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+                                            <span>🔄</span>
+                                            Alternative Meal Ideas {dietPlan.weeklyMeals && `- ${selectedDay}`}
+                                        </h3>
+                                        <div className="grid gap-4 md:grid-cols-3">
+                                            {currentMeals.alternatives?.breakfast && currentMeals.alternatives.breakfast.length > 0 && (
+                                                <div className="bg-orange-50 rounded-xl p-4 border border-orange-200">
+                                                    <h4 className="font-bold text-orange-900 mb-2 text-sm">Breakfast Alternatives</h4>
+                                                    <ul className="space-y-1">
+                                                        {currentMeals.alternatives.breakfast.map((alt, i) => (
+                                                            <li key={i} className="text-sm text-orange-800">• {alt}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                            {currentMeals.alternatives?.lunch && currentMeals.alternatives.lunch.length > 0 && (
+                                                <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
+                                                    <h4 className="font-bold text-emerald-900 mb-2 text-sm">Lunch Alternatives</h4>
+                                                    <ul className="space-y-1">
+                                                        {currentMeals.alternatives.lunch.map((alt, i) => (
+                                                            <li key={i} className="text-sm text-emerald-800">• {alt}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                            {currentMeals.alternatives?.dinner && currentMeals.alternatives.dinner.length > 0 && (
+                                                <div className="bg-purple-50 rounded-xl p-4 border border-purple-200">
+                                                    <h4 className="font-bold text-purple-900 mb-2 text-sm">Dinner Alternatives</h4>
+                                                    <ul className="space-y-1">
+                                                        {currentMeals.alternatives.dinner.map((alt, i) => (
+                                                            <li key={i} className="text-sm text-purple-800">• {alt}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             {/* Summary Card */}
                             <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
@@ -292,6 +466,7 @@ export default function DietPlannerPage() {
                                         )}
                                     </div>
 
+>>>>>>> Stashed changes
                                     <div className="space-y-3">
                                         <div className="p-4 bg-blue-50 rounded-xl">
                                             <p className="text-sm font-semibold text-blue-700 mb-2">🏠 Home Items Used:</p>
@@ -321,12 +496,27 @@ export default function DietPlannerPage() {
                             </div>
 
                             {/* Nutrition Analysis */}
+<<<<<<< Updated upstream
                             {dietPlan.nutritionAnalysis && (
                                 <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
                                     <h3 className="text-2xl font-bold text-slate-900 mb-6">Nutrition Analysis</h3>
 
                                     <div className="grid gap-4 md:grid-cols-5">
                                         {Object.entries(dietPlan.nutritionAnalysis).map(([key, data]) => (
+=======
+                            {(dietPlan.nutritionAnalysis || (dietPlan.dailyNutrition && dietPlan.dailyNutrition[selectedDay])) && (
+                                <div className="rounded-3xl border border-white/60 bg-white p-8 shadow-lg">
+                                    <h3 className="text-2xl font-bold text-slate-900 mb-6">
+                                        Nutrition Analysis {dietPlan.weeklyMeals && `- ${selectedDay}`}
+                                    </h3>
+
+                                    <div className="grid gap-4 md:grid-cols-5">
+                                        {Object.entries(
+                                            dietPlan.dailyNutrition
+                                                ? dietPlan.dailyNutrition[selectedDay] || {}
+                                                : dietPlan.nutritionAnalysis || {}
+                                        ).map(([key, data]) => (
+>>>>>>> Stashed changes
                                             <div key={key} className="rounded-xl border-2 border-slate-200 bg-slate-50 p-4">
                                                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                                                     {key}

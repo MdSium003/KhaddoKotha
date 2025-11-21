@@ -2366,6 +2366,7 @@ app.post("/api/diet-planner/generate", async (req, res) => {
   2. ** General Store Inventory ** (Cost: specified per unit, use to fill gaps):
          ${JSON.stringify(storeInventory)}
 
+<<<<<<< Updated upstream
       ** Rules:**
     1. ** Categorize Foods:** Ensure a balance of Carb, Protein, Vegetable, Fruit / Dairy / Extras.
       2. ** Prioritize Home Items:** Use available home items first.
@@ -2378,6 +2379,111 @@ app.post("/api/diet-planner/generate", async (req, res) => {
       7. ** Nutrition Analysis:** Calculate approximate total nutrition(Calories, Protein, Carbs, Fats, Fiber) for the entire day's plan. Compare these with standard daily recommendations for an average adult (approx. 2000kcal).
 
     ** Output Format(JSON only):**
+=======
+      **Rules:**
+      1. **Categorize Foods:** Ensure a balance of Carb, Protein, Vegetable, Fruit/Dairy/Extras for each day.
+      2. **PRIORITIZE HOME ITEMS FIRST:** Use available home inventory items as much as possible across the week to reduce waste. Home items should be preferred over store items.
+      3. **Fill Gaps:** Use store inventory items only when needed to complete meals or add variety.
+      4. **CRITICAL - BUDGET CONSTRAINT:** Total cost of STORE items per day MUST NEVER EXCEED $${body.budget}. This is a HARD LIMIT - if you cannot create a complete meal plan within this budget, reduce portions, use cheaper alternatives, or prioritize simpler meals. The total cost MUST be <= $${body.budget} per day.
+      5. **Preference:** 
+         - Veg: No meat/fish/egg.
+         - Non-Veg: Allow meat/egg/fish.
+         - Balanced: Mix freely.
+      6. **Variety:** Ensure variety across the week - don't repeat the same meals every day.
+      7. **Nutrition Analysis:** Calculate approximate total nutrition (Calories, Protein, Carbs, Fats, Fiber) for EACH day's plan. Compare these with standard daily recommendations for an average adult (approx. 2000kcal).
+      8. **Cost Calculation:** 
+         - Home items: cost = 0.00
+         - Store items: use the EXACT cost_per_unit from the store inventory provided
+         - Calculate totalCost by summing ALL store item costs across ALL 7 days
+         - VERIFY that each day's store items total <= daily budget ($${body.budget})
+         - VERIFY that total weekly cost = sum of all 7 days <= 7 * $${body.budget}
+      9. **Ingredient Priority Classification:**
+         - Assign each ingredient a priority level:
+           * "green": Optional ingredients that can be skipped to save money
+           * "yellow": Recommended but substitutable (MUST provide a substitute option)
+           * "red": Essential ingredients without which the meal cannot be cooked
+      10. **Alternative Meals:** For each meal type (breakfast/lunch/dinner), provide 1-2 alternative meal options that use similar ingredients or budget.
+
+      **Output Format (JSON only):**
+      {
+        "weeklyMeals": {
+          "Monday": {
+            "breakfast": [{ 
+              "item": "Name", 
+              "source": "Home" | "Store", 
+              "cost": 0.00,
+              "priority": "green" | "yellow" | "red",
+              "substitute": "Alternative item name (only for yellow priority)"
+            }],
+            "lunch": [...],
+            "dinner": [...],
+            "alternatives": {
+              "breakfast": ["Alternative meal 1", "Alternative meal 2"],
+              "lunch": ["Alternative meal 1"],
+              "dinner": ["Alternative meal 1"]
+            }
+          },
+          "Tuesday": { ... },
+          "Wednesday": { ... },
+          "Thursday": { ... },
+          "Friday": { ... },
+          "Saturday": { ... },
+          "Sunday": { ... }
+        },
+        "dailyNutrition": {
+          "Monday": {
+            "calories": { "provided": 0, "recommended": 2000, "unit": "kcal" },
+            "protein": { "provided": 0, "recommended": 50, "unit": "g" },
+            "carbs": { "provided": 0, "recommended": 275, "unit": "g" },
+            "fats": { "provided": 0, "recommended": 78, "unit": "g" },
+            "fiber": { "provided": 0, "recommended": 28, "unit": "g" }
+          },
+          "Tuesday": { ... },
+          ... (for all 7 days)
+        },
+        "totalCost": 0.00,
+        "homeItemsUsed": ["Item1", "Item2"],
+        "storeItemsUsed": ["Item3", "Item4"],
+        "sustainabilityImpact": "Brief text about money saved or waste prevented over the week",
+        "expiringItemsUsed": ["Item1"]
+      }
+    ` : `
+      You are a smart diet planner. Create a one-person daily meal plan (Breakfast, Lunch, Dinner) based on the following constraints:
+
+      **User Inputs:**
+      - Daily Budget: $${body.budget}
+      - Meal Preference: ${body.preference}
+
+      **Inventories:**
+      1. **Home Inventory** (Cost: $0, Prioritize these to reduce waste):
+         ${JSON.stringify(userInventory)}
+      2. **General Store Inventory** (Cost: specified per unit, use to fill gaps):
+         ${JSON.stringify(storeInventory)}
+
+      **Rules:**
+      1. **Categorize Foods:** Ensure a balance of Carb, Protein, Vegetable, Fruit/Dairy/Extras.
+      2. **PRIORITIZE HOME ITEMS FIRST:** Use available home inventory items as much as possible to reduce waste. Home items should be preferred over store items.
+      3. **Fill Gaps:** Use store inventory items only when needed to complete meals or add variety.
+      4. **CRITICAL - BUDGET CONSTRAINT:** Total cost of STORE items MUST NEVER EXCEED $${body.budget}. This is a HARD LIMIT - if you cannot create a complete meal plan within this budget, reduce portions, use cheaper alternatives, or prioritize simpler meals. The total cost MUST be <= $${body.budget}.
+      5. **Preference:** 
+         - Veg: No meat/fish/egg.
+         - Non-Veg: Allow meat/egg/fish.
+         - Balanced: Mix freely.
+      6. **Cost Calculation:** 
+         - Home items: cost = 0.00
+         - Store items: use the EXACT cost_per_unit from the store inventory provided
+         - Calculate totalCost by summing ALL store item costs
+         - VERIFY that totalCost <= $${body.budget} before finalizing the plan
+      7. **Nutrition Analysis:** Calculate approximate total nutrition (Calories, Protein, Carbs, Fats, Fiber) for the entire day's plan. Compare these with standard daily recommendations for an average adult (approx. 2000kcal).
+      8. **Ingredient Priority Classification:**
+         - Assign each ingredient a priority level:
+           * "green": Optional ingredients that can be skipped to save money
+           * "yellow": Recommended but substitutable (MUST provide a substitute option)
+           * "red": Essential ingredients without which the meal cannot be cooked
+      9. **Alternative Meals:** For each meal type (breakfast/lunch/dinner), provide 1-2 alternative meal options that use similar ingredients or budget.
+
+      **Output Format (JSON only):**
+>>>>>>> Stashed changes
       {
         "meals": {
           "breakfast": [{ "item": "Name", "source": "Home" | "Store", "cost": 0.00 }],
@@ -2405,6 +2511,35 @@ app.post("/api/diet-planner/generate", async (req, res) => {
 
     const cleanedText = text.replace(/```json\n ? /g, "").replace(/```\n?/g, "").trim();
     const dietPlan = JSON.parse(cleanedText);
+
+    // Validate that the plan doesn't exceed budget
+    const totalCost = dietPlan.totalCost || 0;
+    const budgetLimit = body.duration === "weekly" ? body.budget * 7 : body.budget;
+
+    if (totalCost > budgetLimit) {
+      return res.status(400).json({
+        message: `Generated meal plan cost ($${totalCost.toFixed(2)}) exceeds your ${body.duration} budget ($${budgetLimit.toFixed(2)}). Please try increasing your budget or adjusting your meal preferences.`
+      });
+    }
+
+    // Additional validation for weekly plans - check each day
+    if (body.duration === "weekly" && dietPlan.weeklyMeals) {
+      const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+      for (const day of days) {
+        const dayMeals = dietPlan.weeklyMeals[day];
+        if (dayMeals) {
+          const dayCost = [...(dayMeals.breakfast || []), ...(dayMeals.lunch || []), ...(dayMeals.dinner || [])]
+            .filter(item => item.source === "Store")
+            .reduce((sum, item) => sum + (item.cost || 0), 0);
+
+          if (dayCost > body.budget) {
+            return res.status(400).json({
+              message: `Meal plan for ${day} ($${dayCost.toFixed(2)}) exceeds your daily budget ($${body.budget.toFixed(2)}). Please try increasing your budget or simplifying your meal preferences.`
+            });
+          }
+        }
+      }
+    }
 
     res.json(dietPlan);
 
